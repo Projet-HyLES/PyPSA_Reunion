@@ -67,8 +67,7 @@ def import_from_excel_folder(path, year):
     :return: dict with all the data compilated
     """
     print("INFO: importing energy network data...")
-    # data = pd.ExcelFile(path+"/data"+str(year)+".xlsx")
-    data = pd.ExcelFile(path + "/dataarticle.xlsx")
+    data = pd.ExcelFile(path+"/data"+str(year)+".xlsx")
     ps = pd.read_csv(path+"/postes-sources.csv", sep=';', encoding='latin-1', index_col=1)
     if not {"Point Geo", "Transfo", "Voltage"}.issubset(ps.columns.values.tolist()):
         raise ValueError('ERROR: substation file not formatted.')

@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     # Initialization of the simulation
     current_path = pathlib.Path(__file__).parent.resolve()
-    data_path = current_path+'/Data'
+    data_path = str(current_path)+'/Data'
     snapshots = pd.date_range("2050-01-01 00:00", "2050-12-31 23:00", freq="H")  # 2050 simulation
     # snapshots = pd.date_range("2030-01-01 00:00", "2030-12-31 23:00", freq="H")  # 2030 simulation
 
@@ -21,10 +21,10 @@ if __name__ == '__main__':
     nb_station = None
     nb_disp = None
     stations = {}
-    if "bus" in h2_scenario:
-        h2_bus_scenario = "freqA"  # freqA, freqB
-        nb_station = 3  # 2 ou 3
-        nb_disp = 1  # 1, 2 ou 3 par station
+    # if "bus" in h2_scenario:
+    #     h2_bus_scenario = "freqA"  # freqA, freqB
+    #     nb_station = 3  # 2 ou 3
+    #     nb_disp = 1  # 1, 2 ou 3 par station
 
     extension_production = False  # if True, the capacity of some generators is extendable (TODO à conserver ou jeter ?)
 
