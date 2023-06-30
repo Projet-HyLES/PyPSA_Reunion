@@ -112,25 +112,23 @@ def import_from_excel_folder(path, year):
 
 def formate_lines(file):
     """
-    Formatting of the lines data
-    :param file: CSV file where the lines data is stored
-    :return: dataframe with data formatted
+    Formatting of the lines data.
+
+    :param file: str, CSV file path where the lines data is stored.
+    :return: pandas.DataFrame, Dataframe with formatted data.
     """
-    lignes = pd.read_csv(file, sep=',', encoding='latin-1')
-    lignes = lignes.dropna()
-    # lignes = lignes.drop_duplicates(subset="Nom de la ligne")  # One line is composed of several segments
-    lignes = lignes.reset_index()
-    nb_bus = 0
-    for index, row in lignes.iterrows():
-        if len(row["Nom de la ligne"].split('/')) > nb_bus:  # The name of the line is of the type 'bus0/bus1'
-            nb_bus = len(row["Nom de la ligne"].split('/'))
 
-    for i in range(nb_bus):
-        lignes["bus" + str(i)] = ""
+    # Load CSV file, drop NaN values, and reset index
+    lignes = pd.read_csv(file, sep=',', encoding='latin-1').dropna().reset_index()
 
-    for index, row in lignes.iterrows():
-        for i in range(len(row["Nom de la ligne"].split('/'))):
-            lignes["bus" + str(i)].loc[index] = row["Nom de la ligne"].split('/')[i]
+    # Count the maximum number of "/" in "Nom de la ligne" column to determine the number of "bus" columns
+    nb_bus = max(lignes["Nom de la ligne"].str.count('/') + 1)
+
+    # Create a list of column names for "bus" columns
+    bus_columns = [f"bus{i}" for i in range(nb_bus)]
+
+    # Split "Nom de la ligne" column into separate "bus" columns
+    lignes[bus_columns] = lignes["Nom de la ligne"].str.split('/', expand=True)
 
     return lignes
 

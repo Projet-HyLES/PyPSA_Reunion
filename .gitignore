@@ -13,3 +13,5 @@ Data/data.xlsx
 Data/dataarticle.xlsx
 Data/hydrogen.xlsx
 __pycache__/
+*#
+.vscode
