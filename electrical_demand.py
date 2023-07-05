@@ -7,46 +7,49 @@ import functions_used as functions
 
 class ElectricalDemand:
     # TODO classe à remanier pour la rendre plus réplicable
-    def __init__(self, network, data, veh, bus):
+    def __init__(self, network):
+
+        self.network = network
+
         self.horizon = network.horizon
         self.days = network.snapshots.normalize().unique()
-        self.data_path = network.data_path
-        self.ps_transfo = data.loc[data["Transfo"] == "y"].index  # Source substations with transformers
+        self.data_dir = network.data_dir
+        self.ps_transfo = self.network.data["postes"].loc[self.network.data["postes"]["Transfo"] == "y"].index  # Source substations with transformers
 
-        self.veh_scenario = veh
-        self.bus_scenario = bus
+        self.veh_scenario = self.network.vehicles_scenario
+        self.bus_scenario = self.network.buses_scenario
 
-    def import_demand(self, network, data, cons):
-        data["load"] = pd.DataFrame(0, index=self.horizon, columns=self.ps_transfo)
-        data["load_buses"] = data["load_buses"].set_index("Réseau")
+    def import_demand(self):
+        self.network.data["load"] = pd.DataFrame(0, index=self.horizon, columns=self.ps_transfo)
+        self.network.data["load_buses"] = self.network.data["load_buses"].set_index("Réseau")
         VE = self.import_VE_demand()
         BUS = self.import_bus_demand()
 
         for i in self.ps_transfo:
-            conso = pd.read_csv(network.data_path+"/Consumption "+str(cons)+"/" + i + "_"+str(cons)+".csv", sep=',', encoding='latin-1',
+            conso = pd.read_csv(self.network.data_dir+"/Consumption "+str(self.network.cons)+"/" + i + "_"+str(self.network.cons)+".csv", sep=',', encoding='latin-1',
                                 index_col=0).squeeze('columns')
             conso.index = self.horizon
 
-            data["load"][i] = conso + VE[i]
+            self.network.data["load"][i] = conso + VE[i]
 
-            if i in data["load_buses"][network.scenario].values:
-                data["load"][i] += BUS[data["load_buses"][data["load_buses"][
-                                                              network.scenario] == i].index.values + " " + self.bus_scenario[0]].squeeze() / 1000
+            if i in self.network.data["load_buses"][self.network.scenario].values:
+                self.network.data["load"][i] += BUS[self.network.data["load_buses"][self.network.data["load_buses"][
+                                                              self.network.scenario] == i].index.values + " " + self.bus_scenario[0]].squeeze() / 1000
 
-            network.add("Load",  # PyPSA component
+            self.network.add("Load",  # PyPSA component
                         i + " load",  # Name of the element
                         bus="electricity bus " + i,  # Bus to which the demand is attached
-                        p_set=data["load"][i],  # Active power consumption
+                        p_set=self.network.data["load"][i],  # Active power consumption
                         )
 
     def import_VE_demand(self):
-        if os.path.exists(self.data_path + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv"):
-            df = pd.read_csv(self.data_path + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv", sep=',', encoding='latin-1', index_col=0)
+        if os.path.exists(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv"):
+            df = pd.read_csv(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv", sep=',', encoding='latin-1', index_col=0)
             df.index = self.horizon
             return df
         else:
             # Code qui reconstruit la demande, pas forcément nécessaire de le garder
-            data = pd.ExcelFile(self.data_path + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable.xlsx")
+            data = pd.ExcelFile(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable.xlsx")
             data_parse = {
                 "load": data.parse("Load curve"),
                 "ratio": data.parse("Demographic distribution"),
@@ -56,7 +59,7 @@ class ElectricalDemand:
             data_parse["ratio"].set_index('Town', inplace=True)
             data_parse["PS"].set_index('Town', inplace=True)
 
-            ps = pd.read_csv(self.data_path + "/postes-sources.csv", sep=';', encoding='latin-1')
+            ps = pd.read_csv(self.data_dir + "/postes-sources.csv", sep=';', encoding='latin-1')
 
             data_parse["load_communes"] = pd.DataFrame(0, index=data_parse["load"].index, columns=data_parse["ratio"].index)
             # Répartition de la courbe de charge journalière par commune
@@ -102,13 +105,13 @@ class ElectricalDemand:
             return data_parse["results"]
 
     def import_bus_demand(self):
-        if os.path.exists(self.data_path+"/conso_bus_urbains.csv"):
-            df = pd.read_csv(self.data_path+"/conso_bus_urbains.csv", sep=',', encoding='latin-1', index_col=0)
+        if os.path.exists(self.data_dir+"/conso_bus_urbains.csv"):
+            df = pd.read_csv(self.data_dir+"/conso_bus_urbains.csv", sep=',', encoding='latin-1', index_col=0)
             df.index = self.horizon
             return df
         else:
             # TODO à construire pour réplicabilité
-            profils = pd.read_excel(self.data_path+"/profil_bus_elec.xlsx", header=1, index_col=0)
+            profils = pd.read_excel(self.data_dir+"/profil_bus_elec.xlsx", header=1, index_col=0)
             data = [profils['week'], profils['Sunday']]
             df = functions.creation_profil_bus(self.horizon, self.days, cons_week, cons_week/2, data)
             return df

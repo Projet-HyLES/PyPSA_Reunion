@@ -1,10 +1,10 @@
+import time
 import pypsa
 import ast
 import pandas as pd
 import xarray as xr
 import cartopy.crs as ccrs
-from tictoc import tic, toc
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from pypsa.plot import add_legend_patches, add_legend_circles, add_legend_lines
 import functions_used as functions
 import additional_constraints as cs
@@ -14,32 +14,30 @@ from electrical_demand import ElectricalDemand
 from hydrogen_elements import H2Chain, H2Demand
 
 
-# Definition of the whole energy network
-
 class EnergyNetwork(pypsa.Network):
+    """
+    Represents an energy network.
 
-    def __init__(self, snap):
-        if snap.size != 8760:
-            raise ValueError(
-                'ERROR: a period of one year must be simulated.')  # TODO deux options : laisser comme ça ou autoriser en segmentant si moins d'un an, et si plus d'un an ?
-        # Adding new attributes to specific components
-        override_component_attrs = pypsa.descriptors.Dict(
-            {k: v.copy() for k, v in pypsa.components.component_attrs.items()})
-        for i in ['Generator', 'Link', 'Store', 'StorageUnit', 'Line']:  # Components involved
-            override_component_attrs[i].loc["env_f"] = ["float", "kgCO2eq/MW", 0.0, "fixed environmental impact",
-                                                        "Input (optional)"]
-            override_component_attrs[i].loc["env_v"] = ["float", "kgCO2eq/MWh", 0.0, "variable environmental impact",
-                                                        "Input (optional)"]
-            override_component_attrs[i].loc["water_f"] = ["float", "m3/MW", 0.0, "fixed water consumption",
-                                                          "Input (optional)"]
-            override_component_attrs[i].loc["water_v"] = ["float", "m3/MWh", 0.0, "variable water consumption",
-                                                          "Input (optional)"]
-        pypsa.Network.__init__(self, override_component_attrs=override_component_attrs)
+    This class extends the `pypsa.Network` class and provides additional functionality specific to energy network simulations.
+    """
+
+    def __init__(self, snapshots):
+        """
+        Initializes an instance of the EnergyNetwork class.
+
+        This constructor initializes the instance by calling the constructor of the base class `pypsa.Network`.
+        """
+        # TODO deux options : laisser comme ça ou autoriser en segmentant si moins d'un an, et si plus d'un an ?
+        if snapshots.size != 8760:
+            raise ValueError('ERROR: a period of one year must be simulated.')
+
+        super().__init__(override_component_attrs=self.get_component_attrs())
+
         self.cons = None
-        self.set_snapshots(snap)
+        self.set_snapshots(snapshots)
         self.scenario = None
         self.data = None
-        self.data_path = None
+        self.data_dir = None
         self.eleclines = None
         self.stations = None
         self.horizon = None
@@ -47,149 +45,201 @@ class EnergyNetwork(pypsa.Network):
         self.vehicles_scenario = None
         self.buses_scenario = None
 
-    def import_network(self, data_path, h2, h2bus, h2disp, h2size, ext):
+
+    def get_component_attrs(self):
+        """
+        Get the component attributes with custom additions
+
+        :return: pypsa.descriptors.Dict, component attributes
+        """
+        # Add custom attributes to specific components
+        attributes_to_add = {
+            "env_f": ["float", "kgCO2eq/MW", 0.0, "fixed environmental impact", "Input (optional)"],
+            "env_v": ["float", "kgCO2eq/MWh", 0.0, "variable environmental impact", "Input (optional)"],
+            "water_f": ["float", "m3/MW", 0.0, "fixed water consumption", "Input (optional)"],
+            "water_v": ["float", "m3/MWh", 0.0, "variable water consumption", "Input (optional)"]
+        }
+        components_to_update = ['Generator', 'Link', 'Store', 'StorageUnit', 'Line']
+
+        component_attrs = pypsa.descriptors.Dict({k: v.copy() for k, v in pypsa.components.component_attrs.items()})
+
+        # Update the component attributes with custom additions
+        for component in components_to_update:
+            attrs = component_attrs[component]
+            for attr_name, attr_value in attributes_to_add.items():
+                attrs.loc[attr_name] = attr_value
+
+        return component_attrs
+
+
+    def import_network(self, data_dir, h2, h2bus, h2disp, h2size, ext):
         """
         Import and definition of the energy network
-        :param data_path: str, path for the data files
+
+        :param data_dir: str, path for the data files
         :param h2: str, hydrogen scenario simulated
         :param h2bus: str, hydrogen bus scenario simulated
         :param h2disp: int, number of dispensers for the hydrogen bus scenario simulated
         :param h2size: TODO fonctionnalité pas encore utilisée
         :param ext: bool, switch to allow the capacity of some generators to be extendable
-        :return: list of already used and new electricity production technologies
+        :return: tuple of already used and new electricity production technologies
         """
-        data, lines = functions.import_from_excel_folder(data_path, self.snapshots.year.unique()[0])
-        self.data = data
-        self.data_path = data_path
+        # Store processed data in instance variables
+        self.data, lines = functions.import_from_excel_folder(data_dir, self.snapshots.year.unique()[0])
+        self.data_dir = data_dir
         self.eleclines = lines
-        self.scenario = str(
-            data['network'][data['network'].index == 'production scenario'].dropna(axis=1).values[0][0])
-        self.cons = str(
-            data['network'][data['network'].index == 'consumption scenario'].dropna(axis=1).values[0][0])
-        self.climate_scenario = str(
-            data['network'][data['network'].index == 'climate scenario'].dropna(axis=1).values[0][0])
-        self.vehicles_scenario = data['network'][data['network'].index == 'vehicles scenario'].dropna(
-            axis=1).values.flatten().tolist()
-        buses = data['network'][data['network'].index == 'buses scenario'].dropna(axis=1)
-        self.buses_scenario = [buses['List 1'].values[0],
-                               ast.literal_eval(buses['List 2'].values[0]),
-                               ast.literal_eval(buses['List 3'].values[0])]
+
+        # Extract scenario and consumption data from network information
+        self.scenario = str(self.data['network'].at['production scenario', self.data['network'].columns.dropna()[0]])
+        self.cons = str(self.data['network'].at['consumption scenario', self.data['network'].columns.dropna()[0]])
+        self.climate_scenario = str(self.data['network'].loc['climate scenario'].dropna().values[0])
+        self.vehicles_scenario = self.data['network'].loc['vehicles scenario'].dropna().values.flatten().tolist()
+
+        # Extract buses scenario from network information
+        buses = self.data['network'][self.data['network'].index == 'buses scenario'].dropna(axis=1)
+        self.buses_scenario = [
+            buses['List 1'].values[0],
+            ast.literal_eval(buses['List 2'].values[0]),
+            ast.literal_eval(buses['List 3'].values[0])
+        ]
 
         self.horizon = self.snapshots.tolist()
 
+        self.import_meteo_data()
+        self.import_carriers()
+
+        # Import buses and lines into the electrical grid
+        electrical_grid = ElectricalGrid(self)
+        electrical_grid.import_buses()
+        electrical_grid.import_lines()
+
+        # Import existing storages
+        existing_storages = ExistingStorages(self)
+        existing_storages.import_storages()
+
+        # Import generators
+        self.import_generators(ext)
+
+        # Update hydraulic generator values
+        if not ext:
+            self.update_hydraulic_generator_values()
+
+        # Import electrical demand and additional batteries
+        electrical_demand = ElectricalDemand(self)
+        electrical_demand.import_demand()
+        additional_storages = AdditionalStorages(self)
+        additional_storages.import_storages()
+
+        # Import hydrogen technologies according to the scenario passed
+        if h2 == "stock":
+            h2_chain = H2Chain(self.data, self.data["postes"].index)
+            h2_chain.import_electrolyser(h2size)
+            h2_chain.import_h2_storage_lp(h2size)
+            h2_chain.import_fc(h2size)
+        elif h2 in ["bus", "train", "train+bus"]:
+            h2_chain = H2Chain(self.data, self.data["load_train"].index)
+            h2_chain.import_electrolyser(h2size)
+            h2_chain.import_compressor()
+            h2_chain.import_h2_storage_hp()
+            if "bus" in h2:
+                h2_demand = H2Demand(self.data['load_car'][self.scenario], self.data_dir)
+                h2_demand.import_h2_bus(h2bus, h2disp)
+            if "train" in h2:
+                h2_demand = H2Demand(self.data['load_train'].index, self.data_dir)
+                h2_demand.import_h2_train()
+        elif h2 in ["stock+bus", "stock+train", "stock+bus+train"]:
+            h2station = self.data['load_car'][self.scenario]
+            h2_demand = H2Demand(h2station, data_dir)
+            h2_demand.import_h2_bus(h2bus, h2disp)
+            h2_chain = H2Chain(self.data, h2station)
+            h2_chain.import_electrolyser(h2size)
+            h2_chain.import_compressor()
+            h2_chain.import_h2_storage_hp()
+            h2_chain.import_fc(h2size)
+
+        return (
+            ast.literal_eval(self.data['network'].at['generation base', 'List 1']),
+            ast.literal_eval(self.data['network'].at['generation new', 'List 1'])
+        )
+
+
+    def import_meteo_data(self):
+        """
+        Import meteorological data
+
+        :param data: Data containing meteorological information
+        :param horizon: List of time horizon
+        """
+        year = self.snapshots.year.unique().values[0]
+
         self.data['meteo_r'] = pd.read_csv(
-            self.data_path + "/rayonnement_tmy_" + str(self.snapshots.year.unique().values[0]) + ".csv", sep=',',
+            f"{self.data_dir}/rayonnement_tmy_{year}.csv",
+            sep=',',
             encoding='latin-1',
-            index_col=0)
+            index_col=0
+        )
         self.data['meteo_r'].index = self.horizon
 
         self.data['meteo_t'] = pd.read_csv(
-            self.data_path + "/BRIO/T_" + str(self.snapshots.year.unique().values[0])[-2:]
-            + '_' + self.climate_scenario + ".csv", sep=',', encoding='latin-1',
-            index_col=0)
+            f"{self.data_dir}/BRIO/T_{str(year)[-2:]}_{self.climate_scenario}.csv",
+            sep=',',
+            encoding='latin-1',
+            index_col=0
+        )
         self.data['meteo_t'].index = self.horizon
 
-        self.data['wind'] = pd.read_csv(self.data_path + "/data_wind_2019_80m.csv", sep=';', encoding='latin-1',
-                                        index_col=0)  # m/s
+        self.data['wind'] = pd.read_csv(
+            f"{self.data_dir}/data_wind_2019_80m.csv",
+            sep=';',
+            encoding='latin-1',
+            index_col=0
+        )
         self.data['wind'].sort_index(inplace=True)
         self.data['wind'].index = self.horizon
 
         self.data['rain'] = pd.read_csv(
-            self.data_path + '/BRIO/Precipitations/Prec_scena' + self.climate_scenario + '_moy'
-            + str(self.snapshots.year.unique().values[0])[-2:] + '.csv')
+            f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(year)[-2:]}.csv"
+        )
         if not {'timec', 'lon', 'lat', 'pr_corr'}.issubset(self.data['rain'].columns.values.tolist()):
             raise ValueError('ERROR: rainfall file not formatted.')
         self.data['rain']['timec'] = pd.to_datetime(self.data['rain']['timec'], format='%Y-%m-%d %H:%M:%S')
 
-        # Import of the different energy carriers
-        self.import_carriers(self.data["carrier"])
 
-        # Import of the different substations
-        ElectricalGrid(data, lines).import_buses(self)
-        # Import of the different electrical lines
-        ElectricalGrid(data, lines).import_lines(self)
-        # Import of the existing batteries
-        ExistingStorages(data).import_storages(self)
+    def update_hydraulic_generator_values(self):
+        """
+        Update hydraulic generator values
 
-        # Import of the generators
-        self.import_generators(data, ext)
-        if not ext:
-            hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
-            power_file = self.generators.p_nom[hydrau]
-            power_file = power_file.rename(lambda x: x[:-12])
-            power_file = power_file.to_frame()
-            precs = functions.create_weighted_rainfall(self.data['rain'], power_file, self.data['postes'])
-            val_min = (precs * 3.67e-5 + 0.183) * power_file.sum() * 8760  # Values studied for La Réunion
-            self.data['generator_data'].loc[self.data['generator_data']['technology'] == 'Hydraulique', 'min_year'] = \
-                val_min[0]
-            val_max = (precs * 3.67e-5 + 0.373) * power_file.sum() * 8760  # Values studied for La Réunion
-            self.data['generator_data'].loc[self.data['generator_data']['technology'] == 'Hydraulique', 'max_year'] = \
-                val_max[0]
+        :param data: Data containing generator information
+        """
+        hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
+        power_file = self.generators.p_nom[hydrau].rename(lambda x: x[:-12]).to_frame()
 
-        # Import of the electrical demand
-        ElectricalDemand(self, data["postes"], self.vehicles_scenario, self.buses_scenario).import_demand(self, data,
-                                                                                                          self.cons)
-        # Import of the additionnal batteries on every substation
-        AdditionalStorages(data["storage"], data["postes"]).import_storages(self, data["postes"])
+        precs = functions.create_weighted_rainfall(self.data['rain'], power_file, self.data['postes'])
 
-        # Import of the hydrogen technologies according to the scenario passed
-        if h2 is None:
-            pass
-        elif h2 == "stock":
-            H2Chain(data, data["postes"].index).import_electrolyser(self, h2size)
-            H2Chain(data, data["postes"].index).import_h2_storage_lp(self, h2size)
-            H2Chain(data, data["postes"].index).import_fc(self, h2size)
-        elif (h2 == "bus") or (h2 == "train") or (h2 == "train+bus"):  # TODO en construction
-            h2station = self.data['load_car'][self.scenario]
-            # H2Chain(data, sorted(set(chain.from_iterable(h2station.values())))).import_electrolyser(self, h2size)
-            # H2Chain(data, sorted(set(chain.from_iterable(h2station.values())))).import_compressor(self)
-            # H2Chain(data, sorted(set(chain.from_iterable(h2station.values())))).import_h2_storage_hp(self)
-            H2Chain(data, data["load_train"].index).import_electrolyser(self, h2size)
-            H2Chain(data, data["load_train"].index).import_compressor(self)
-            H2Chain(data, data["load_train"].index).import_h2_storage_hp(self)
-            # H2Chain(data, data["load_train"].index).import_expander(self)
-            # H2Chain(data, data["load_train"].index).import_h2_storage_lp(self, h2size)
-            # H2Chain(data, data["load_train"].index).import_fc(self, h2size)
-            if "bus" in h2:  # TODO voir les stations
-                H2Demand(h2station, self.data_path).import_h2_bus(self, h2bus, h2disp)
-            if "train" in h2:
-                H2Demand(data["load_train"].index, self.data_path).import_h2_train(self)
+        val_min = (precs * 3.67e-5 + 0.183) * power_file.sum() * 8760  # Values studied for La Réunion
+        self.data['generator_data'].loc[self.data['generator_data']['technology'] == 'Hydraulique', 'min_year'] = val_min[0]
 
-            # add_postes = data["postes"].index
-            # for i in range(len(data["load_train"].index)):
-            #     add_postes = add_postes.delete(add_postes.get_loc(data["load_train"].index[i]))
-            # H2Chain(data, add_postes).import_electrolyser(self, h2size)
-            # H2Chain(data, add_postes).import_h2_storage_lp(self, h2size)
-            # H2Chain(data, add_postes).import_fc(self, h2size)
+        val_max = (precs * 3.67e-5 + 0.373) * power_file.sum() * 8760  # Values studied for La Réunion
+        self.data['generator_data'].loc[self.data['generator_data']['technology'] == 'Hydraulique', 'max_year'] = val_max[0]
 
-        elif (h2 == "stock+bus") or (h2 == "stock+train") or (
-                h2 == "stock+bus+train"):  # TODO vérifier la modélisation (détendeur, lp, hp)
-            h2station = self.data['load_car'][self.scenario]
-            H2Demand(h2station, data_path).import_h2_bus(self, h2bus, h2disp)
-            H2Chain(data, h2station).import_electrolyser(self, h2size)
-            H2Chain(data, h2station).import_compressor(self)
-            H2Chain(data, h2station).import_h2_storage_hp(self)
-            H2Chain(data, h2station).import_fc(self, h2size)
 
-        return ast.literal_eval(data['network'].loc['generation base', 'List 1']), \
-            ast.literal_eval(data['network'].loc['generation new', 'List 1'])
-
-    def import_carriers(self, data):
+    def import_carriers(self):
         """
         Function to import the different energy carriers involved
         :param data: table of the carriers with their attributes
         :return: None
         """
-        self.madd("Carrier", data["name"].tolist(), color=data["color"].tolist())
+        self.madd("Carrier", self.data["carrier"]["name"].tolist(), color=self.data["carrier"]["color"].tolist())
 
-    def import_generators(self, data, ext):
+
+    def import_generators(self, ext):
         """
         Function to import the generators of the energy system
         :param data: big file with all the data
         :param ext: bool, switch to allow the capacity of some generators to be extendable
         :return: None
         """
-        generators = data["generator"].sort_values(
+        generators = self.data["generator"].sort_values(
             by=["Poste source", "Filière"])  # Values are sorted by station and carrier
         generators = generators.reset_index()
         total_capa = 0
@@ -207,18 +257,19 @@ class EnergyNetwork(pypsa.Network):
                     continue
 
                 elif "PV" in fil:
-                    PV(data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, data["meteo_t"][ps], data["meteo_r"][ps], ps,
+                    PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps,
                                                          ext)  # TODO round parce qu'il y avait un beug avec ext=True à cause de la pbq float
 
                 elif fil == "Eolien":
-                    Wind(data["generator_data"], "Vestas").import_wind(self, round(total_capa, 2) / 1000, data["wind"][ps], ps, ext)
+                    Wind(self.data["generator_data"], "Vestas").import_wind(self, round(total_capa, 2) / 1000, self.data["wind"][ps], ps, ext)
 
                 elif fil == "Eolien offshore":  # TODO distinction de modèle à faire
-                    Wind(data["generator_data"], "Haliade").import_wind(self, round(total_capa, 2) / 1000, data["wind"][ps], ps, ext)
+                    Wind(self.data["generator_data"], "Haliade").import_wind(self, round(total_capa, 2) / 1000, self.data["wind"][ps], ps, ext)
 
                 else:
-                    BaseProduction(data["generator_data"], fil).import_base(self, round(total_capa, 2) / 1000, ps, ext)
+                    BaseProduction(self.data["generator_data"], fil).import_base(self, round(total_capa, 2) / 1000, ps, ext)
                 total_capa = 0
+
 
     def optimization(self, solver, solver_options, h2, sec_base, sec_new, obj, water, ext):
         """
@@ -340,9 +391,9 @@ class EnergyNetwork(pypsa.Network):
         # model.add_constraints(v_water <= water - c_water, name="water_impact")
 
         if obj == 'multi':  # TODO à tester (est-ce possible d'optimiser à nouveau sans reconstruire ?), manque front de Pareto et enregistrement de chaque système optimisé
-            t = toc(False)
-            print("INFO: creating the model took {} seconds.".format(t))
-            tic()
+            toc = time.time() #t = toc(False)
+            print("INFO: creating the model took {} seconds.".format(toc))
+            tic = time.time()
 
             self.optimize.solve_model(solver_name=solver, **solver_options)
             if not self.model.status == 'ok':
@@ -378,9 +429,9 @@ class EnergyNetwork(pypsa.Network):
             if obj == 'env':
                 model.objective = cs.impact_constraint(self, model, obj)[0].to_linexpr()
 
-            t = toc(False)
-            print("INFO: creating the model took {} seconds.".format(t))
-            tic()
+            toc = time.time()
+            print("INFO: creating the model took {} seconds.".format(toc))
+            tic = time.time()
             self.optimize.solve_model(solver_name=solver, **solver_options)
 
             if not self.model.status == 'ok':
@@ -388,15 +439,27 @@ class EnergyNetwork(pypsa.Network):
 
             return cs.impact_result(self, 'cost'), cs.impact_result(self, 'env'), cs.impact_result(self, 'water')
 
+
     def plot_network(self, status, stor, elec, fc):
         """
-        Function for the plot of the network before and after optimisation
-        :param status: str, network before of adter optimisation to be plotted
-        :param stor: bool, swith to plot the locations and sizes of the storages after optimisation
-        :param elec: bool, switch to plot the locations and sizes of the electrolyzers after optimisation
-        :param fc: bool, switch to plot the locations and sizes of the fuel cells after optimisation
+        Plot the network before and after optimization.
+
+        :param status: The status of the network to be plotted. Valid values are 'initial' or 'final'.
+        :type status: str
+
+        :param stor: Indicates whether to plot the locations and sizes of the storages after optimization.
+        :type stor: bool
+
+        :param elec: Indicates whether to plot the locations and sizes of the electrolyzers after optimization.
+        :type elec: bool
+
+        :param fc: Indicates whether to plot the locations and sizes of the fuel cells after optimization.
+        :type fc: bool
+
         :return: None
+        :rtype: None
         """
+
         legend_kwargs = {"loc": "upper left", "frameon": False}
         legend_circles_dict = {"bbox_to_anchor": (1, 0.8), "labelspacing": 2.5, **legend_kwargs}
         line_sizes = [26, 44.7]  # in MVA
@@ -410,6 +473,7 @@ class EnergyNetwork(pypsa.Network):
             legend1 = self.carriers.loc[self.generators.carrier.unique()]['color']
             legend2 = self.generators.carrier.unique()
             save = "network_map.png"
+
         elif status == 'final':
             if stor:
                 bus_sizes = [50, 100]  # in MWh
@@ -426,21 +490,21 @@ class EnergyNetwork(pypsa.Network):
                 legend1 = self.carriers.loc[self.stores.carrier.unique()]['color']
                 legend2 = self.stores.carrier.unique()
                 save = "network_map_stor.png"
+
             elif elec:
                 bus_sizes = [50, 100]  # in MW
                 unit = 'MW'
-                gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][
-                    ['bus0', 'p_nom_opt']].set_index('bus0').squeeze()
+                gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][['bus0', 'p_nom_opt']].set_index('bus0').squeeze()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid before optimization - electrolysers"
                 legend1 = None
                 legend2 = None
                 save = "network_map_elec.png"
+
             elif fc:
                 bus_sizes = [50, 100]  # in MW
                 unit = 'MW'
-                gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][
-                    ['bus1', 'p_nom_opt']].set_index('bus1').squeeze()
+                gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][['bus1', 'p_nom_opt']].set_index('bus1').squeeze()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid before optimization - fuel cells"
                 legend1 = None
@@ -449,31 +513,36 @@ class EnergyNetwork(pypsa.Network):
 
         fig = plt.figure()
         ax = plt.axes(projection=ccrs.PlateCarree())
-        self.plot(ax=ax, title=title, color_geomap=True, bus_sizes=gen / 3e5,
-                  line_widths=lines,
-                  branch_components=['Line'],
-                  boundaries=[55.1115043336971, 55.97942417175307, -20.843415164623533, -21.424694661983377])
+
+        # Plot network
+        self.plot(ax=ax, title=title, color_geomap=True, bus_sizes=gen / 3e5, line_widths=lines,
+                branch_components=['Line'], boundaries=[55.1115043336971, 55.97942417175307, -20.843415164623533, -21.424694661983377])
+
+        # Add legends
         add_legend_patches(
             ax,
             legend1,
             legend2,
-            legend_kw={"bbox_to_anchor": (1, 0), **legend_kwargs, "loc": "lower left"},
+            legend_kw={"bbox_to_anchor": (1, 0), **legend_kwargs, "loc": "lower left"}
         )
         add_legend_circles(
             ax,
             [s / 3e5 for s in bus_sizes],
             [f"{s} " + unit for s in bus_sizes],
-            legend_kw=legend_circles_dict,
+            legend_kw=legend_circles_dict
         )
         add_legend_lines(
             ax,
             [s / 10 for s in line_sizes],
             [f"{s} MVA" for s in line_sizes],
             patch_kw={'color': 'rosybrown'},
-            legend_kw={"bbox_to_anchor": (1, 1), **legend_kwargs},
+            legend_kw={"bbox_to_anchor": (1, 1), **legend_kwargs}
         )
+
         fig.tight_layout()
         fig.savefig(save, bbox_inches="tight", dpi=300)
+        plt.show()
+
 
     def generator_data(self):
         """
@@ -596,6 +665,7 @@ class EnergyNetwork(pypsa.Network):
         plt.savefig("duration_curve_intermittent.png", bbox_inches="tight", dpi=300)
 
         return df2
+
 
     def h2_data(self, bus):
         ely = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index]
