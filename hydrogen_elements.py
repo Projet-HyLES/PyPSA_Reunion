@@ -126,7 +126,7 @@ class H2Chain:
                      carrier=self.storage_data["carrier"].iloc[0],
                      e_nom=0,  # Nominal power (MW)
                      e_nom_extendable=True,  # The capacity can be extended
-                     e_nom_min=0,  # Minimum value of capacity
+                     e_nom_min=network.loads_t.p_set.filter(regex='hydrogen').iloc[:, 0].groupby(pd.to_datetime(network.loads_t.p_set.index).date).sum().max() * 3,  # Minimum value of capacity
                      e_cyclic=True,
                      capital_cost=functions.calculate_capital_costs(self.storage_data["discount_rate"].iloc[0],
                                                                     self.storage_data["lifetime"].iloc[0],

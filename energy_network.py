@@ -139,16 +139,16 @@ class EnergyNetwork(pypsa.Network):
             h2_chain.import_h2_storage_lp(self, h2size)
             h2_chain.import_fc(self, h2size)
         elif h2 in ["bus", "train", "train+bus"]:  # TODO en construction : manque de flexibilité (voir ancien code avec les phrases en commentaire)
-            h2_chain = H2Chain(self.data, self.data['load_car'][self.scenario][:h2station])
-            h2_chain.import_electrolyser(self, h2size)
-            h2_chain.import_compressor(self)
-            h2_chain.import_h2_storage_hp(self)
             if "bus" in h2:
                 h2_demand = H2Demand(self.data['load_car'][self.scenario][:h2station], self.data_dir)
                 h2_demand.import_h2_bus(self, h2bus, h2disp)
             if "train" in h2:
                 h2_demand = H2Demand(self.data['load_train'].index, self.data_dir)
                 h2_demand.import_h2_train(self)
+            h2_chain = H2Chain(self.data, self.data['load_car'][self.scenario][:h2station])
+            h2_chain.import_electrolyser(self, h2size)
+            h2_chain.import_compressor(self)
+            h2_chain.import_h2_storage_hp(self)
         elif h2 in ["stock+bus", "stock+train", "stock+bus+train"]:
             h2station = self.data['load_car'][self.scenario][:h2station]
             h2_demand = H2Demand(h2station, data_dir)
