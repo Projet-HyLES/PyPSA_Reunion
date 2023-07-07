@@ -3,6 +3,7 @@ import pypsa
 import ast
 import pandas as pd
 import xarray as xr
+import numpy as np
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 from pypsa.plot import add_legend_patches, add_legend_circles, add_legend_lines
@@ -27,7 +28,7 @@ class EnergyNetwork(pypsa.Network):
 
         This constructor initializes the instance by calling the constructor of the base class `pypsa.Network`.
         """
-        # TODO deux options : laisser comme ça ou autoriser en segmentant si moins d'un an, et si plus d'un an ?
+
         if snapshots.size != 8760:
             raise ValueError('ERROR: a period of one year must be simulated.')
 
@@ -72,13 +73,14 @@ class EnergyNetwork(pypsa.Network):
         return component_attrs
 
 
-    def import_network(self, data_dir, h2, h2bus, h2disp, h2size, ext):
+    def import_network(self, data_dir, h2, h2bus, h2station, h2disp, h2size, ext):
         """
         Import and definition of the energy network
 
         :param data_dir: str, path for the data files
         :param h2: str, hydrogen scenario simulated
         :param h2bus: str, hydrogen bus scenario simulated
+        :param h2station: int, number of stations for the hydrogen bus scenario simulated
         :param h2disp: int, number of dispensers for the hydrogen bus scenario simulated
         :param h2size: TODO fonctionnalité pas encore utilisée
         :param ext: bool, switch to allow the capacity of some generators to be extendable
@@ -133,29 +135,29 @@ class EnergyNetwork(pypsa.Network):
         # Import hydrogen technologies according to the scenario passed
         if h2 == "stock":
             h2_chain = H2Chain(self.data, self.data["postes"].index)
-            h2_chain.import_electrolyser(h2size)
-            h2_chain.import_h2_storage_lp(h2size)
-            h2_chain.import_fc(h2size)
-        elif h2 in ["bus", "train", "train+bus"]:
-            h2_chain = H2Chain(self.data, self.data["load_train"].index)
-            h2_chain.import_electrolyser(h2size)
-            h2_chain.import_compressor()
-            h2_chain.import_h2_storage_hp()
+            h2_chain.import_electrolyser(self, h2size)
+            h2_chain.import_h2_storage_lp(self, h2size)
+            h2_chain.import_fc(self, h2size)
+        elif h2 in ["bus", "train", "train+bus"]:  # TODO en construction : manque de flexibilité (voir ancien code avec les phrases en commentaire)
+            h2_chain = H2Chain(self.data, self.data['load_car'][self.scenario][:h2station])
+            h2_chain.import_electrolyser(self, h2size)
+            h2_chain.import_compressor(self)
+            h2_chain.import_h2_storage_hp(self)
             if "bus" in h2:
-                h2_demand = H2Demand(self.data['load_car'][self.scenario], self.data_dir)
-                h2_demand.import_h2_bus(h2bus, h2disp)
+                h2_demand = H2Demand(self.data['load_car'][self.scenario][:h2station], self.data_dir)
+                h2_demand.import_h2_bus(self, h2bus, h2disp)
             if "train" in h2:
                 h2_demand = H2Demand(self.data['load_train'].index, self.data_dir)
-                h2_demand.import_h2_train()
+                h2_demand.import_h2_train(self)
         elif h2 in ["stock+bus", "stock+train", "stock+bus+train"]:
-            h2station = self.data['load_car'][self.scenario]
+            h2station = self.data['load_car'][self.scenario][:h2station]
             h2_demand = H2Demand(h2station, data_dir)
-            h2_demand.import_h2_bus(h2bus, h2disp)
+            h2_demand.import_h2_bus(self, h2bus, h2disp)
             h2_chain = H2Chain(self.data, h2station)
-            h2_chain.import_electrolyser(h2size)
-            h2_chain.import_compressor()
-            h2_chain.import_h2_storage_hp()
-            h2_chain.import_fc(h2size)
+            h2_chain.import_electrolyser(self, h2size)
+            h2_chain.import_compressor(self)
+            h2_chain.import_h2_storage_hp(self)
+            h2_chain.import_fc(self, h2size)
 
         return (
             ast.literal_eval(self.data['network'].at['generation base', 'List 1']),
@@ -254,7 +256,7 @@ class EnergyNetwork(pypsa.Network):
                 # We add elements to our model when the last element of the file is reached or the last element of the station/of the technology
 
                 if "PV+stockage" in fil:  # TODO probablement devoir régler ce problème de PV+stockage un jour
-                    continue
+                    total_capa = 0
 
                 elif "PV" in fil:
                     PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps,
@@ -271,12 +273,13 @@ class EnergyNetwork(pypsa.Network):
                 total_capa = 0
 
 
-    def optimization(self, solver, solver_options, h2, sec_base, sec_new, obj, water, ext):
+    def optimization(self, solver, solver_options, h2, h2station, sec_base, sec_new, obj, water, ext):
         """
         Function for the creation of the optimization problem and its solving
         :param solver: str, solver used
         :param solver_options: dict, keyword arguments used by the solver
         :param h2: str, hydrogen scenario simulated
+        :param h2station: int, number of hydrogen station simulated
         :param sec_base: list, production sectors already installed (may only work for Reunion)
         :param sec_new: list, production sectors newly installed (may only work for Reunion)
         :param obj: str, type of the optimisation
@@ -285,6 +288,7 @@ class EnergyNetwork(pypsa.Network):
         :return: costs and environmental impact TODO ou n'importe quoi d'autre en soi
         """
         print("INFO: creating '{}' optimization...".format(obj))
+        tic = time.time()
         model = self.optimize.create_model()
         # model = self.optimize.create_model(transmission_losses=3)  # TODO update PyPSA v0.23.0 pour la suite + voir quel facteur ?
 
@@ -307,15 +311,16 @@ class EnergyNetwork(pypsa.Network):
             coords=(self.get_extendable_i('Store'),))
 
         # Constraints for the definition of the hydrogen chain
-        if h2 == "train":  # TODO voir pour généraliser train et bus
-            H2Chain(self.data, self.data["load_train"].index.to_series()).constraint_prodsup_bus(self, model,
+        if h2 in ["bus", "train"]:  # TODO voir pour généraliser train et bus
+            H2Chain(self.data, self.data['load_car'][self.scenario][:h2station]).constraint_prodsup_bus(self, model,
                                                                                                  self.horizon)
+            # H2Chain(self.data, self.data["load_train"].index.to_series()).constraint_prodsup_bus(self, model, self.horizon)
 
         # Constraints for the definition of the existing storages
-        ExistingStorages(self.data).constraints_existing_battery(self, model, self.horizon)
+        ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
 
         # Constraints for the definition of the additional storages
-        AdditionalStorages(self.data["storage"], self.data["postes"]).constraints_additionnal_battery(self, model)
+        AdditionalStorages(self).constraints_additionnal_battery(self, model)
 
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies
         hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
@@ -390,10 +395,11 @@ class EnergyNetwork(pypsa.Network):
         # v_water, c_water = cs.impact_constraint(self, model, 'water')
         # model.add_constraints(v_water <= water - c_water, name="water_impact")
 
+        toc = time.time()
+        print("INFO: creating the model took {} minutes.".format((toc - tic) / 60))
+        tic = time.time()
+
         if obj == 'multi':  # TODO à tester (est-ce possible d'optimiser à nouveau sans reconstruire ?), manque front de Pareto et enregistrement de chaque système optimisé
-            toc = time.time() #t = toc(False)
-            print("INFO: creating the model took {} seconds.".format(toc))
-            tic = time.time()
 
             self.optimize.solve_model(solver_name=solver, **solver_options)
             if not self.model.status == 'ok':
@@ -429,18 +435,18 @@ class EnergyNetwork(pypsa.Network):
             if obj == 'env':
                 model.objective = cs.impact_constraint(self, model, obj)[0].to_linexpr()
 
-            toc = time.time()
-            print("INFO: creating the model took {} seconds.".format(toc))
-            tic = time.time()
             self.optimize.solve_model(solver_name=solver, **solver_options)
 
             if not self.model.status == 'ok':
                 raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
 
+            toc = time.time()
+            print("INFO: solving took {} minutes.".format((toc - tic)/60))
+
             return cs.impact_result(self, 'cost'), cs.impact_result(self, 'env'), cs.impact_result(self, 'water')
 
 
-    def plot_network(self, status, stor, elec, fc):
+    def plot_network(self, status, stor, ely, fc):
         """
         Plot the network before and after optimization.
 
@@ -450,8 +456,8 @@ class EnergyNetwork(pypsa.Network):
         :param stor: Indicates whether to plot the locations and sizes of the storages after optimization.
         :type stor: bool
 
-        :param elec: Indicates whether to plot the locations and sizes of the electrolyzers after optimization.
-        :type elec: bool
+        :param ely: Indicates whether to plot the locations and sizes of the electrolyzers after optimization.
+        :type ely: bool
 
         :param fc: Indicates whether to plot the locations and sizes of the fuel cells after optimization.
         :type fc: bool
@@ -483,7 +489,7 @@ class EnergyNetwork(pypsa.Network):
                     if "additional" in i:
                         self.stores['elec bus'][i] = 'electricity bus ' + i[19:]
                     elif "hydrogen" in i:
-                        self.stores['elec bus'][i] = 'electricity bus ' + i[17:]
+                        self.stores['elec bus'][i] = 'electricity bus ' + i[20:]
                 gen = self.stores.groupby(['elec bus', 'carrier']).e_nom_opt.sum()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid after optimization - storages"
@@ -491,7 +497,7 @@ class EnergyNetwork(pypsa.Network):
                 legend2 = self.stores.carrier.unique()
                 save = "network_map_stor.png"
 
-            elif elec:
+            elif ely:
                 bus_sizes = [50, 100]  # in MW
                 unit = 'MW'
                 gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][['bus0', 'p_nom_opt']].set_index('bus0').squeeze()
@@ -499,12 +505,12 @@ class EnergyNetwork(pypsa.Network):
                 title = "Reunion's electricity grid before optimization - electrolysers"
                 legend1 = None
                 legend2 = None
-                save = "network_map_elec.png"
+                save = "network_map_ely.png"
 
             elif fc:
                 bus_sizes = [50, 100]  # in MW
                 unit = 'MW'
-                gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][['bus1', 'p_nom_opt']].set_index('bus1').squeeze()
+                gen = self.links.loc[self.links[self.links.index.str.contains("fuel cell")].index][['bus1', 'p_nom_opt']].set_index('bus1').squeeze()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid before optimization - fuel cells"
                 legend1 = None
@@ -546,77 +552,34 @@ class EnergyNetwork(pypsa.Network):
 
     def generator_data(self):
         """
-        Function for the plot + informations about the electricity mix after optimisation
+        Function for the plot + information about the electricity mix after optimisation
         :return: dataframe with hourly intermittent rate
         """
-        gen = self.generators_t.p
-        pow = self.generators.p_nom_opt
-        thermique = []
-        charbonbagasse = []
-        hydraulique = []
-        pv = []
-        pvstock = []
-        eolien = []
-        offshore = []
-        bioener = []
-        biomasse = []
-        bagasse = []
-        geothermie = []
-        etm = []
-        for i in gen.columns:
-            if ('TAC fioul/gazole' in i) or ('Moteur Diesel' in i):
-                thermique.append(i)
-            elif 'Thermique charbon/bagasse' in i:
-                charbonbagasse.append(i)
-            elif 'Hydraulique' in i:
-                hydraulique.append(i)
-            elif 'PV+stockage' in i:
-                pvstock.append(i)
-            elif 'Eolien offshore' in i:
-                offshore.append(i)
-            elif 'Eolien' in i:
-                eolien.append(i)
-            elif ('TAC bioéthanol' in i) or ('Bioénergie' in i):
-                bioener.append(i)
-            elif 'Bagasse' in i:
-                bagasse.append(i)
-            elif 'Biomasse' in i:
-                biomasse.append(i)
-            elif 'Geothermie' in i:
-                geothermie.append(i)
-            elif 'ETM' in i:
-                etm.append(i)
-            else:
-                pv.append(i)
+        gen = self.generators_t.p.groupby(self.generators.carrier, axis=1).sum()
+        pow = self.generators.p_nom_opt.groupby(self.generators.carrier).sum()
+        colors = self.carriers['color']
 
-        df = pd.concat([gen[hydraulique].sum(axis=1).rename('Hydraulic'), gen[offshore].sum(axis=1).rename('Offshore'),
-                        gen[eolien].sum(axis=1).rename('Wind'), gen[bioener].sum(axis=1).rename('Bioenergy'),
-                        gen[bagasse].sum(axis=1).rename('Bagass'), gen[biomasse].sum(axis=1).rename('Biomass'),
-                        gen[geothermie].sum(axis=1).rename('Geothermal energy'), gen[etm].sum(axis=1).rename('OTEC'),
-                        gen[pv].sum(axis=1).rename('PV')], axis=1)
         fig = plt.figure()
-        df.sum().plot.pie(title='Electricity mix over the simulated year', autopct='%1.1f%%')
+        gen.sum().plot.pie(title='Electricity mix over the simulated year', autopct='%1.1f%%', colors=[colors[col] for col in gen.columns])
         fig.tight_layout()
         fig.savefig("electricity_mix.png", bbox_inches="tight", dpi=300)
 
         # Duration curve  # TODO considérer les stockages dans le graph ? (>0 injection et <0 soutirage)
-        df1 = pd.concat([(gen[hydraulique].sum(axis=1) / pow[hydraulique].sum()).rename('Hydraulic').sort_values(
+        df1 = pd.concat([(gen['water'] / pow['water'].sum()).rename('Hydraulic').sort_values(
             ascending=False).reset_index(),
-                         (gen[offshore].sum(axis=1) / pow[offshore].sum()).rename('Offshore').sort_values(
+                         (gen['wind offshore'] / pow['wind offshore']).rename('Offshore').sort_values(
                              ascending=False).reset_index(),
-                         (gen[eolien].sum(axis=1) / pow[eolien].sum()).rename('Wind').sort_values(
+                         (gen['wind onshore'] / pow['wind onshore']).rename('Wind').sort_values(
                              ascending=False).reset_index(),
-                         (gen[bioener].sum(axis=1) / (pow[bioener].sum()+41)).rename('Bioenergy').sort_values(
+                         (gen['biogaz'] / (pow['biogaz']+41)).rename('Bioenergy').sort_values(
                              ascending=False).reset_index(),  # pbq : TAC non extendable donc p_nom_opt à 0
-                         (gen[bagasse].sum(axis=1) / pow[bagasse].sum()).rename('Bagass').sort_values(
+                         (gen['bagasse'] / pow['bagasse']).rename('Bagass').sort_values(ascending=False).reset_index(),
+                         (gen['biomass'] / pow['biomass']).rename('Biomass').sort_values(ascending=False).reset_index(),
+                         (gen['geothermal energy'] / pow['geothermal energy']).rename('Geothermal energy').sort_values(
                              ascending=False).reset_index(),
-                         (gen[biomasse].sum(axis=1) / pow[biomasse].sum()).rename('Biomass').sort_values(
+                         (gen['ocean thermal energy'] / pow['ocean thermal energy']).rename('OTEC').sort_values(
                              ascending=False).reset_index(),
-                         (gen[geothermie].sum(axis=1) / pow[geothermie].sum()).rename('Geothermal energy').sort_values(
-                             ascending=False).reset_index(),
-                         (gen[etm].sum(axis=1) / pow[etm].sum()).rename('OTEC').sort_values(
-                             ascending=False).reset_index(),
-                         (gen[pv].sum(axis=1) / pow[pv].sum()).rename('PV').sort_values(ascending=False).reset_index()],
+                         (gen['solar'] / pow['solar']).rename('PV').sort_values(ascending=False).reset_index()],
                         axis=1)
         df1 = df1.drop(['snapshot'], axis=1)
         ax = df1.plot()
@@ -628,21 +591,20 @@ class EnergyNetwork(pypsa.Network):
         plt.tight_layout()
         plt.savefig("duration_curve.png", bbox_inches="tight", dpi=300)
 
-        print("RESULTS: {} MWh of hydroelectricity produced.".format(round(gen[hydraulique].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of PV produced.".format(round(gen[pv].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of onshore wind produced.".format(round(gen[eolien].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of offshore wind produced.".format(round(gen[offshore].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of biomass (global) produced.".format(round(
-            gen[bioener].sum(axis=1).sum() + gen[bagasse].sum(axis=1).sum() + gen[biomasse].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of geothermal energie produced.".format(round(gen[geothermie].sum(axis=1).sum())))
-        print("RESULTS: {} MWh of ETM produced.".format(round(gen[etm].sum(axis=1).sum())))
+        # print("RESULTS: {} MWh of fossil produced.".format(round(gen['coal'].sum())))
+        print("RESULTS: {} MWh of hydroelectricity produced.".format(round(gen['water'].sum())))
+        print("RESULTS: {} MWh of PV produced.".format(round(gen['solar'].sum())))
+        print("RESULTS: {} MWh of onshore wind produced.".format(round(gen['wind onshore'].sum())))
+        print("RESULTS: {} MWh of offshore wind produced.".format(round(gen['wind offshore'].sum())))
+        print("RESULTS: {} MWh of biomass (global) produced.".format(round(gen['biogaz'].sum() + gen['bagasse'].sum() + gen['biomass'].sum())))
+        print("RESULTS: {} MWh of geothermal energy produced.".format(round(gen['geothermal energy'].sum())))
+        print("RESULTS: {} MWh of ETM produced.".format(round(gen['ocean thermal energy'].sum())))
 
         # Operating points
         stor = self.stores_t.p.sum(axis=1)
         stor[stor < 0] = 0
-        df2 = pd.concat([df.sum(axis=1) + stor + self.storage_units_t.p_dispatch.sum(axis=1),
-                         (gen[offshore].sum(axis=1) + gen[eolien].sum(axis=1) + gen[pv].sum(axis=1)) * 100 / df.sum(
-                             axis=1)], axis=1)
+        df2 = pd.concat([gen.sum(axis=1) + stor + self.storage_units_t.p_dispatch.sum(axis=1),
+                         (gen['wind offshore'] + gen['wind onshore'] + gen['solar']) * 100 / gen.sum(axis=1)], axis=1)
         ax = df2.plot(kind='scatter', x=0, y=1)
         ax.grid(True, linestyle='-.', which='both')
         ax.set_title('Diagram of the operating points of the electrical system', fontsize=17)
@@ -663,6 +625,32 @@ class EnergyNetwork(pypsa.Network):
         ax.tick_params(axis='both', which='both', labelsize=14)
         plt.tight_layout()
         plt.savefig("duration_curve_intermittent.png", bbox_inches="tight", dpi=300)
+
+        # Operation over the year
+        p_by_carrier = gen
+        p_by_carrier['load'] = -self.loads_t.p_set.sum(axis=1)
+
+        storage_disp = self.stores_t.p.loc[:, self.stores.carrier == 'electricity'].sum(axis=1)
+        storage_disp[storage_disp < 0] = 0
+        storage_disp = storage_disp + self.storage_units_t.p_dispatch.sum(axis=1)
+
+        storage_stor = self.stores_t.p.loc[:, self.stores.carrier == 'electricity'].sum(axis=1)
+        storage_stor[storage_stor > 0] = 0
+        storage_stor = storage_stor - self.storage_units_t.p_store.sum(axis=1)
+
+        p_by_carrier['battery charging'] = storage_stor
+        p_by_carrier['battery discharging'] = storage_disp
+
+        cols = np.append(self.generators.carrier.unique(), ['load', 'battery discharging', 'battery charging'])
+        p_by_carrier = p_by_carrier[cols]  # to sort the area graph TODO mais là du coup c'est pas ordonné : parce que si on prend network.carriers.index on a h2 elec et coal qui ne fit pas
+        c = [colors[col] for col in p_by_carrier.columns]
+        fig, ax = plt.subplots(figsize=(12, 6))
+        (p_by_carrier / 1e3).plot(kind="area", ax=ax, linewidth=4, color=c, alpha=0.7)
+        ax.legend(ncol=4, loc="upper left")
+        ax.set_ylabel("GW")
+        ax.set_xlabel("")
+        ax.set_title('Operation of electricity over the year', fontsize=17)
+        fig.tight_layout()
 
         return df2
 

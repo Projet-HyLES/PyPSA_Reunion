@@ -123,6 +123,7 @@ class H2Chain:
                      "hydrogen storage hp " + self.places,  # Name of the element
                      bus=("hydrogen bus 350 bar " + self.places).tolist(),
                      # Name of the bus to which the store is attached
+                     carrier=self.storage_data["carrier"].iloc[0],
                      e_nom=0,  # Nominal power (MW)
                      e_nom_extendable=True,  # The capacity can be extended
                      e_nom_min=0,  # Minimum value of capacity
@@ -233,7 +234,7 @@ class H2Chain:
 
     def constraint_prodsup_bus(self, n, model, horizon):
         places = self.places.to_xarray()
-        places = places.rename({'Nom du poste source': 'h2buses'})
+        # places = places.rename({'Nom du poste source': 'h2buses'})  # TODO est-ce important si on enlève ?
 
         def electrolyzer_prodsup(m, k):
             """
@@ -267,8 +268,10 @@ class H2Demand:
 
     def import_h2_bus(self, network, h2bus, nb_disp):
         if os.path.exists(self.data_path + '/conso_hydrogene_' + str(h2bus) + '.csv'):
-            data_conso_H2 = pd.read_csv('/conso_hydrogene_' + str(h2bus) + '.csv', sep=',', encoding='latin-1',
+            data_conso_H2 = pd.read_csv(self.data_path + '/conso_hydrogene_' + str(h2bus) + '.csv', sep=',',
+                                        encoding='latin-1',
                                         index_col=0)
+            data_conso_H2.index = network.horizon
         # TODO à construire pour réplicabilité
         # else:
         # data_conso_H2 = pd.DataFrame()
@@ -278,13 +281,14 @@ class H2Demand:
         #     df = functions.creation_profil_h2_bus(network.horizon, network.snapshots.normalize().unique(), cons_week=conso_week, cons_sunday=conso_sunday, data=[data_freq[i], data_freq.iloc[:, data_freq.columns.get_indexer([i]) + 1]])
         #     data_conso_H2[i[-17:]] = df
 
-        network.madd("Load",  # PyPSA component
-                     self.places + " hydrogen load",  # Name of the element
-                     bus="hydrogen bus 350 bar " + self.places,  # Name of the bus to which load is attached
-                     p_set=data_conso_H2[str(nb_disp) + " disp " + str(
-                         self.places.size) + " stations"] * 33.33 / self.places.size / 1000,
-                     # Active power consumption
-                     )
+        for i in self.places:
+            network.add("Load",  # PyPSA component
+                        i + " hydrogen load",  # Name of the element
+                        bus="hydrogen bus 350 bar " + i,  # Name of the bus to which load is attached
+                        p_set=data_conso_H2[str(nb_disp) + " disp " + str(
+                            self.places.size) + " stations"] * 33.33 / self.places.size / 1000,
+                        # Active power consumption
+                        )
 
     def import_h2_train(self, network):
         if os.path.exists(self.data_path + '/conso_train.csv'):

@@ -7,7 +7,7 @@
 
 # Code
 File to run for modeling and optimising the system: **run.py**.
-This file currently models an electricity scenario of 2050. All the data used for this modeling can be changed from the Data folder.
+This file currently models an electricity scenario of 2050. All the data used for this modeling can be updated from the Data folder.
 
 This file calls **functions_used.py** where few functions are defined, mostly for the formatting of the data.
 

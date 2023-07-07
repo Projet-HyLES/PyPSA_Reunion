@@ -329,7 +329,7 @@ def prod_vestas(umin, umax, unom, rho, diam, u, capa, x):
 
 def creation_profil_bus(horizon, days, cons_week, cons_sunday, data):
     """
-    Function to create a year profile for the consumption of buse. From a daily profil (week day or sunday), the function
+    Function to create a year profile for the consumption of buse. From a daily profile (week day or sunday), the function
     produces.
     :param horizon: horizon of the simulated year
     :param days: days of the simulated year
