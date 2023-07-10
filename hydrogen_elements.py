@@ -68,13 +68,6 @@ class H2Chain:
                          )
 
     def import_compressor(self, network):
-        network.madd("Bus",  # PyPSA component
-                     "hydrogen bus 350 bar " + self.places,  # Name of the element
-                     carrier="hydrogen 350 bar",
-                     x=self.x.tolist(),  # Longitude
-                     y=self.y.tolist()  # Latitude
-                     )
-
         network.madd("Link",  # PyPSA component
                      "compressor " + self.places,  # Name of the element
                      bus0=("hydrogen bus 30 bar " + self.places).tolist(),  # Name of first bus : electricity bus
@@ -280,6 +273,13 @@ class H2Demand:
         # for i in data_freq.columns[::2]:
         #     df = functions.creation_profil_h2_bus(network.horizon, network.snapshots.normalize().unique(), cons_week=conso_week, cons_sunday=conso_sunday, data=[data_freq[i], data_freq.iloc[:, data_freq.columns.get_indexer([i]) + 1]])
         #     data_conso_H2[i[-17:]] = df
+
+        network.madd("Bus",  # PyPSA component
+                     "hydrogen bus 350 bar " + self.places,  # Name of the element
+                     carrier="hydrogen 350 bar",
+                     x=network.data["postes"].loc[network.data["postes"].index.isin(self.places)]["Long"].tolist(),  # Longitude
+                     y=network.data["postes"].loc[network.data["postes"].index.isin(self.places)]["Lat"].tolist()  # Latitude
+                     )
 
         for i in self.places:
             network.add("Load",  # PyPSA component
