@@ -55,7 +55,7 @@ if __name__ == '__main__':
     # Plot of the results
     print("INFO: plot of the results...")
     network.plot_network('final', True, False, False)
-    enr_inter = network.generator_data()
+    enr_inter, operation = network.generator_data()
     if (h2_scenario == "train") or (h2_scenario == "bus"):
         network.plot_network('final', False, True, False)
         ely, h2stor = network.h2_data(bus=True)

@@ -564,7 +564,7 @@ class EnergyNetwork(pypsa.Network):
         fig.tight_layout()
         fig.savefig("electricity_mix.png", bbox_inches="tight", dpi=300)
 
-        # Duration curve  # TODO considérer les stockages dans le graph ? (>0 injection et <0 soutirage)
+        # Duration curve
         df1 = pd.concat([(gen['water'] / pow['water'].sum()).rename('Hydraulic').sort_values(
             ascending=False).reset_index(),
                          (gen['wind offshore'] / pow['wind offshore']).rename('Offshore').sort_values(
@@ -572,7 +572,7 @@ class EnergyNetwork(pypsa.Network):
                          (gen['wind onshore'] / pow['wind onshore']).rename('Wind').sort_values(
                              ascending=False).reset_index(),
                          (gen['biogaz'] / (pow['biogaz']+41)).rename('Bioenergy').sort_values(
-                             ascending=False).reset_index(),  # pbq : TAC non extendable donc p_nom_opt à 0
+                             ascending=False).reset_index(),  # TODO pbq : TAC non extendable donc p_nom_opt à 0
                          (gen['bagasse'] / pow['bagasse']).rename('Bagass').sort_values(ascending=False).reset_index(),
                          (gen['biomass'] / pow['biomass']).rename('Biomass').sort_values(ascending=False).reset_index(),
                          (gen['geothermal energy'] / pow['geothermal energy']).rename('Geothermal energy').sort_values(
@@ -591,14 +591,18 @@ class EnergyNetwork(pypsa.Network):
         plt.tight_layout()
         plt.savefig("duration_curve.png", bbox_inches="tight", dpi=300)
 
-        # print("RESULTS: {} MWh of fossil produced.".format(round(gen['coal'].sum())))
+        if 'coal' in gen.columns:
+            print("RESULTS: {} MWh of fossil produced.".format(round(gen['coal'].sum())))
         print("RESULTS: {} MWh of hydroelectricity produced.".format(round(gen['water'].sum())))
         print("RESULTS: {} MWh of PV produced.".format(round(gen['solar'].sum())))
         print("RESULTS: {} MWh of onshore wind produced.".format(round(gen['wind onshore'].sum())))
-        print("RESULTS: {} MWh of offshore wind produced.".format(round(gen['wind offshore'].sum())))
+        if 'wind offshore' in gen.columns:
+            print("RESULTS: {} MWh of offshore wind produced.".format(round(gen['wind offshore'].sum())))
         print("RESULTS: {} MWh of biomass (global) produced.".format(round(gen['biogaz'].sum() + gen['bagasse'].sum() + gen['biomass'].sum())))
-        print("RESULTS: {} MWh of geothermal energy produced.".format(round(gen['geothermal energy'].sum())))
-        print("RESULTS: {} MWh of ETM produced.".format(round(gen['ocean thermal energy'].sum())))
+        if 'geothermal energy' in gen.columns:
+            print("RESULTS: {} MWh of geothermal energy produced.".format(round(gen['geothermal energy'].sum())))
+        if 'ocean thermal energy' in gen.columns:
+            print("RESULTS: {} MWh of ETM produced.".format(round(gen['ocean thermal energy'].sum())))
 
         # Operating points
         stor = self.stores_t.p.sum(axis=1)
@@ -641,8 +645,8 @@ class EnergyNetwork(pypsa.Network):
         p_by_carrier['battery charging'] = storage_stor
         p_by_carrier['battery discharging'] = storage_disp
 
-        cols = np.append(self.generators.carrier.unique(), ['load', 'battery discharging', 'battery charging'])
-        p_by_carrier = p_by_carrier[cols]  # to sort the area graph TODO mais là du coup c'est pas ordonné : parce que si on prend network.carriers.index on a h2 elec et coal qui ne fit pas
+        cols = np.append(colors.index.values[np.isin(colors.index.values, self.generators.carrier.unique())], ['load', 'battery discharging', 'battery charging'])
+        p_by_carrier = p_by_carrier[cols]  # to sort the area graph
         c = [colors[col] for col in p_by_carrier.columns]
         fig, ax = plt.subplots(figsize=(12, 6))
         (p_by_carrier / 1e3).plot(kind="area", ax=ax, linewidth=4, color=c, alpha=0.7)
@@ -652,7 +656,7 @@ class EnergyNetwork(pypsa.Network):
         ax.set_title('Operation of electricity over the year', fontsize=17)
         fig.tight_layout()
 
-        return df2
+        return df2, p_by_carrier
 
 
     def h2_data(self, bus):
