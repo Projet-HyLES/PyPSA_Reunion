@@ -289,8 +289,7 @@ class EnergyNetwork(pypsa.Network):
         """
         print("INFO: creating '{}' optimization...".format(obj))
         tic = time.time()
-        model = self.optimize.create_model()
-        # model = self.optimize.create_model(transmission_losses=3)  # TODO update PyPSA v0.23.0 pour la suite + voir quel facteur ?
+        model = self.optimize.create_model(transmission_losses=2)  # TODO comparison of results for different factors
 
         # Bounds directly on the variables for nominal power  # TODO est-ce que ça a vraiment un impact ? en gros les bornes sur PyPSA ne sont définies qu'en contraintes (surprenant) et là on borne les variables directement (dans l'objectif de gagner du temps de calcul mais c'est pas sûr que ça fonctionne)
         if ext:
@@ -571,8 +570,8 @@ class EnergyNetwork(pypsa.Network):
                              ascending=False).reset_index(),
                          (gen['wind onshore'] / pow['wind onshore']).rename('Wind').sort_values(
                              ascending=False).reset_index(),
-                         (gen['biogaz'] / (pow['biogaz']+41)).rename('Bioenergy').sort_values(
-                             ascending=False).reset_index(),  # TODO pbq : TAC non extendable donc p_nom_opt à 0
+                         (gen['biogaz'] / (pow['biogaz'])).rename('Bioenergy').sort_values(
+                             ascending=False).reset_index(),
                          (gen['bagasse'] / pow['bagasse']).rename('Bagass').sort_values(ascending=False).reset_index(),
                          (gen['biomass'] / pow['biomass']).rename('Biomass').sort_values(ascending=False).reset_index(),
                          (gen['geothermal energy'] / pow['geothermal energy']).rename('Geothermal energy').sort_values(
@@ -609,14 +608,14 @@ class EnergyNetwork(pypsa.Network):
         stor[stor < 0] = 0
         df2 = pd.concat([gen.sum(axis=1) + stor + self.storage_units_t.p_dispatch.sum(axis=1),
                          (gen['wind offshore'] + gen['wind onshore'] + gen['solar']) * 100 / gen.sum(axis=1)], axis=1)
-        ax = df2.plot(kind='scatter', x=0, y=1)
-        ax.grid(True, linestyle='-.', which='both')
-        ax.set_title('Diagram of the operating points of the electrical system', fontsize=17)
-        ax.set_ylabel("Intermittent renewable energy rate (%)", fontsize=17)
-        ax.set_xlabel("Production (including stored energy) (MW)", fontsize=17)
-        ax.tick_params(axis='both', which='both', labelsize=14)
-        plt.tight_layout()
-        plt.savefig("operating_points.png", bbox_inches="tight", dpi=300)
+        # ax = df2.plot(kind='scatter', x=0, y=1)
+        # ax.grid(True, linestyle='-.', which='both')
+        # ax.set_title('Diagram of the operating points of the electrical system', fontsize=17)
+        # ax.set_ylabel("Intermittent renewable energy rate (%)", fontsize=17)
+        # ax.set_xlabel("Production (including stored energy) (MW)", fontsize=17)
+        # ax.tick_params(axis='both', which='both', labelsize=14)
+        # plt.tight_layout()
+        # plt.savefig("operating_points.png", bbox_inches="tight", dpi=300)
 
         # Duration curve of intermittent energies
         df3 = df2[1].sort_values(ascending=False).reset_index()
@@ -642,6 +641,8 @@ class EnergyNetwork(pypsa.Network):
         storage_stor[storage_stor > 0] = 0
         storage_stor = storage_stor - self.storage_units_t.p_store.sum(axis=1)
 
+        stores = pd.concat([self.storage_units_t.state_of_charge, self.stores_t.e], axis=1).groupby(self.stores.carrier, axis=1).sum()
+
         p_by_carrier['battery charging'] = storage_stor
         p_by_carrier['battery discharging'] = storage_disp
 
@@ -650,11 +651,13 @@ class EnergyNetwork(pypsa.Network):
         c = [colors[col] for col in p_by_carrier.columns]
         fig, ax = plt.subplots(figsize=(12, 6))
         (p_by_carrier / 1e3).plot(kind="area", ax=ax, linewidth=4, color=c, alpha=0.7)
+        (stores / 1e3).plot(ax=ax, linestyle='dashed')
         ax.legend(ncol=4, loc="upper left")
         ax.set_ylabel("GW")
         ax.set_xlabel("")
         ax.set_title('Operation of electricity over the year', fontsize=17)
         fig.tight_layout()
+        plt.savefig("operation.png", bbox_inches="tight", dpi=300)
 
         return df2, p_by_carrier
 
