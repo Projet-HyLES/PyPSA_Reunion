@@ -13,6 +13,7 @@ class ElectricalGrid:
 
     R = 0.06  # Reactance, source : cours de Robin
     X = 0.37  # Resistance
+    CAP_MAX = 88  # Maximal capacity, source : Vers l'autonomie energetique des ZNI - ADEME
     # TODO à update fonction de la puissance (pb linéarité ?)
     CAPCOST_LINES = 10400 + 25000  # €/MVA, cost for extending s_nom by 1 MVA (source rapport ADEME)
     ISLAND_FACTOR = 1.2  # Islanding factor
@@ -71,6 +72,7 @@ class ElectricalGrid:
                             s_nom=row["Capacite (MVA)"],
                             s_nom_extendable=True,
                             s_nom_min=row["Capacite (MVA)"],
+                            s_nom_max=self.CAP_MAX,
                             x=self.X,
                             r=self.R,
                             capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
@@ -86,6 +88,7 @@ class ElectricalGrid:
                     s_nom=row["Capacite (MVA)"],
                     s_nom_extendable=True,
                     s_nom_min=row["Capacite (MVA)"],
+                    s_nom_max=self.CAP_MAX,
                     x=self.X,
                     r=self.R,
                     capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
