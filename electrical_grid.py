@@ -117,6 +117,7 @@ class ExistingStorages:
         """
         attributes_mapping = {
             "kind": "kind",
+            "carrier": "carrier",
             "fuelcost": "fuel_cost",
             "variableom": "variable_OM",
             "efficiencystore": "efficiency store",
@@ -155,6 +156,7 @@ class ExistingStorages:
             "StorageUnit",
             "existing battery " + i,
             bus="electricity bus " + i,
+            carrier=self.carrier[i],
             p_nom=self.capacity[i],
             marginal_cost=self.calculate_marginal_costs(i),
             cyclic_state_of_charge=True,
@@ -205,6 +207,7 @@ class ExistingStorages:
             "Store",
             "existing battery " + i,
             bus="existing battery bus " + i,
+            carrier=self.carrier[i],
             e_nom=self.capacity[i],
             e_cyclic=True,
             standing_loss=self.standingloss[i],
