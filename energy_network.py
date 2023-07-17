@@ -138,18 +138,23 @@ class EnergyNetwork(pypsa.Network):
             h2_chain.import_electrolyser(self, h2size)
             h2_chain.import_h2_storage_lp(self, h2size)
             h2_chain.import_fc(self, h2size)
-        elif h2 in ["bus", "train", "train+bus"]:  # TODO en construction : manque de flexibilité (voir ancien code avec les phrases en commentaire)
-            if "bus" in h2:
-                h2_demand = H2Demand(self.data['load_car'][self.scenario][:h2station], self.data_dir)
-                h2_demand.import_h2_bus(self, h2bus, h2disp)
+        elif h2 in ["buses", "train", "train+buses"]:
+            h2_places_buses = pd.Series([], dtype=str)
+            h2_places_train = pd.Series([], dtype=str)
+            if "buses" in h2:
+                h2_places_buses = self.data['load_car'][self.scenario][:h2station]
+                h2_demand = H2Demand(h2_places_buses, self.data_dir)
+                h2_demand.import_h2_buses(self, h2bus, h2disp)
             if "train" in h2:
-                h2_demand = H2Demand(self.data['load_train'].index, self.data_dir)
+                h2_places_train = self.data['load_train'].index.to_series()
+                h2_demand = H2Demand(h2_places_train, self.data_dir)
                 h2_demand.import_h2_train(self)
-            h2_chain = H2Chain(self.data, self.data['load_car'][self.scenario][:h2station])
+            h2_places = pd.concat([h2_places_buses, h2_places_train]).drop_duplicates().reset_index(drop=True)  # stations are pooled
+            h2_chain = H2Chain(self.data, h2_places)
             h2_chain.import_electrolyser(self, h2size)
             h2_chain.import_compressor(self)
             h2_chain.import_h2_storage_hp(self)
-        elif h2 in ["stock+bus", "stock+train", "stock+bus+train"]:
+        elif h2 in ["stock+buses", "stock+train", "stock+buses+train"]:  # TODO en construction : manque de flexibilité (voir ancien code avec les phrases en commentaire)
             h2station = self.data['load_car'][self.scenario][:h2station]
             h2_demand = H2Demand(h2station, data_dir)
             h2_demand.import_h2_bus(self, h2bus, h2disp)
@@ -289,7 +294,7 @@ class EnergyNetwork(pypsa.Network):
         """
         print("INFO: creating '{}' optimization...".format(obj))
         tic = time.time()
-        model = self.optimize.create_model(transmission_losses=2)  # TODO comparison of results for different factors
+        model = self.optimize.create_model(transmission_losses=1)  # TODO comparison of results/calculation time for different factors
 
         # Bounds directly on the variables for nominal power  # TODO est-ce que ça a vraiment un impact ? en gros les bornes sur PyPSA ne sont définies qu'en contraintes (surprenant) et là on borne les variables directement (dans l'objectif de gagner du temps de calcul mais c'est pas sûr que ça fonctionne)
         if ext:
@@ -386,9 +391,6 @@ class EnergyNetwork(pypsa.Network):
         model.add_constraints(
                  sum(model.variables["Generator-p"][j, i] for i in biomasse+bagasse for j in list(self.snapshots)) <= 1100000,
                  name="limit2_biomasse")
-        # model.add_constraints(
-        #     sum(model.variables["Generator-p"][j, i] for i in bagasse for j in list(self.snapshots)) <= 1100000,
-        #     name="limit2_bagasse")
 
         # Constraints for water consumption
         # v_water, c_water = cs.impact_constraint(self, model, 'water')

@@ -18,7 +18,7 @@ if __name__ == '__main__':
     current_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(current_dir, 'Data')
 
-    h2_scenario = 'bus'  # ['stock', 'bus', 'stock+bus', 'stock+hysteresis', 'train', 'train+bus', 'stock+bus+train', 'None']
+    h2_scenario = 'train+buses'  # ['stock', 'buses', 'stock+buses', 'stock+hysteresis', 'train', 'train+buses', 'stock+buses+train', 'None']
     h2_installations = None
     h2_bus_scenario = None
     nb_station = None
@@ -39,13 +39,15 @@ if __name__ == '__main__':
     toc = time.time()
     print("INFO: Importing data took {} seconds.".format(toc - tic))
 
+    raise ValueError('ERROR: STOP.')
+
     network.plot_network('initial', False, False, False)
 
     # Optimization of the system
     obj = 'cost'  # cost, env, multi
     limit_water = None
 
-    solver_options = {'Method': 3, 'DegenMoves': 0, 'BarHomogeneous': 1}
+    solver_options = {'Method': 2, 'DegenMoves': 0, 'BarHomogeneous': 1}
     cost_impact, env_impact, water_impact = network.optimization(solver="gurobi", solver_options=solver_options,
                                                                  h2=h2_scenario,
                                                                  h2station=nb_station,
