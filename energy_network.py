@@ -133,12 +133,12 @@ class EnergyNetwork(pypsa.Network):
         additional_storages.import_storages()
 
         # Import hydrogen technologies according to the scenario passed
-        if h2 == "stock":
+        if "stock" in h2:
             h2_chain = H2Chain(self.data, self.data["postes"].index)
             h2_chain.import_electrolyser(self, h2size)
             h2_chain.import_h2_storage_lp(self, h2size)
             h2_chain.import_fc(self, h2size)
-        elif h2 in ["buses", "train", "train+buses"]:
+        if h2 != "stock":
             h2_places_buses = pd.Series([], dtype=str)
             h2_places_train = pd.Series([], dtype=str)
             if "buses" in h2:
@@ -151,18 +151,8 @@ class EnergyNetwork(pypsa.Network):
                 h2_demand.import_h2_train(self)
             h2_places = pd.concat([h2_places_buses, h2_places_train]).drop_duplicates().reset_index(drop=True)  # stations are pooled
             h2_chain = H2Chain(self.data, h2_places)
-            h2_chain.import_electrolyser(self, h2size)
             h2_chain.import_compressor(self)
             h2_chain.import_h2_storage_hp(self)
-        elif h2 in ["stock+buses", "stock+train", "stock+buses+train"]:  # TODO en construction : manque de flexibilité (voir ancien code avec les phrases en commentaire)
-            h2station = self.data['load_car'][self.scenario][:h2station]
-            h2_demand = H2Demand(h2station, data_dir)
-            h2_demand.import_h2_bus(self, h2bus, h2disp)
-            h2_chain = H2Chain(self.data, h2station)
-            h2_chain.import_electrolyser(self, h2size)
-            h2_chain.import_compressor(self)
-            h2_chain.import_h2_storage_hp(self)
-            h2_chain.import_fc(self, h2size)
 
         return (
             ast.literal_eval(self.data['network'].at['generation base', 'List 1']),

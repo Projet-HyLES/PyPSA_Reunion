@@ -90,27 +90,6 @@ class H2Chain:
                      water_v=self.compressor_data["water_v"].iloc[0],
                      )
 
-    def import_expander(self, network):  # TODO à enlever probablement
-        network.madd("Link",  # PyPSA component
-                     "expander " + self.places,  # Name of the element
-                     bus0=("hydrogen bus 350 bar " + self.places).tolist(),  # Name of first bus : electricity bus
-                     bus1=("hydrogen bus 30 bar " + self.places).tolist(),  # Name of the second bus : hydrogen bus
-                     p_nom_extendable=True,  # Active power which can pass through link is extendable
-                     efficiency=self.expander_data["efficiency"].iloc[0],
-                     # Efficiency of power transfer from bus0 to bus1
-                     capital_cost=functions.calculate_capital_costs(self.expander_data["discount_rate"].iloc[0],
-                                                                    self.expander_data["lifetime"].iloc[0],
-                                                                    self.expander_data["fixed_OM (%)"].iloc[0],
-                                                                    self.expander_data["fixed_OM (tot)"].iloc[0],
-                                                                    self.expander_data["CAPEX"].iloc[0], 1),
-                     marginal_cost=functions.calculate_marginal_costs(0, self.expander_data["variable_OM"].iloc[0],
-                                                                      self.expander_data["efficiency"].iloc[0]),
-                     env_f=self.expander_data["env_f"].iloc[0],
-                     env_v=self.expander_data["env_v"].iloc[0],
-                     water_f=self.expander_data["water_f"].iloc[0],
-                     water_v=self.expander_data["water_v"].iloc[0],
-                     )
-
     def import_h2_storage_hp(self, network):
         # Static and series loads are grouped together
         total_load = pd.concat([network.loads.groupby('bus').sum().p_set.filter(regex='hydrogen') * 24 * 3,
