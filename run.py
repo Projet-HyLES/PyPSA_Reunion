@@ -18,7 +18,7 @@ if __name__ == '__main__':
     current_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(current_dir, 'Data')
 
-    h2_scenario = 'train+buses'  # ['stock', 'buses', 'stock+buses', 'stock+hysteresis', 'train', 'train+buses', 'stock+buses+train', 'None']
+    h2_scenario = 'train+buses'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
     h2_installations = None
     h2_bus_scenario = None
     nb_station = None
@@ -39,7 +39,7 @@ if __name__ == '__main__':
     toc = time.time()
     print("INFO: Importing data took {} seconds.".format(toc - tic))
 
-    raise ValueError('ERROR: STOP.')
+    # raise ValueError('ERROR: STOP.')
 
     network.plot_network('initial', False, False, False)
 
@@ -58,10 +58,10 @@ if __name__ == '__main__':
     print("INFO: plot of the results...")
     network.plot_network('final', True, False, False)
     enr_inter, operation = network.generator_data()
-    if (h2_scenario == "train") or (h2_scenario == "bus"):
-        network.plot_network('final', False, True, False)
-        ely, h2stor = network.h2_data(bus=True)
-    elif h2_scenario is not None:
+    if "stock" in h2_scenario:
         network.plot_network('final', False, True, False)
         network.plot_network('final', False, False, True)
         ely, h2stor, fc = network.h2_data(bus=False)
+    elif h2_scenario is not None:
+        network.plot_network('final', False, True, False)
+        ely, h2stor = network.h2_data(bus=True)

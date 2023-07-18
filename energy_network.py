@@ -45,6 +45,7 @@ class EnergyNetwork(pypsa.Network):
         self.climate_scenario = None
         self.vehicles_scenario = None
         self.buses_scenario = None
+        self.h2_places = None
 
 
     def get_component_attrs(self):
@@ -133,12 +134,12 @@ class EnergyNetwork(pypsa.Network):
         additional_storages.import_storages()
 
         # Import hydrogen technologies according to the scenario passed
-        if "stock" in h2:
-            h2_chain = H2Chain(self.data, self.data["postes"].index)
-            h2_chain.import_electrolyser(self, h2size)
-            h2_chain.import_h2_storage_lp(self, h2size)
-            h2_chain.import_fc(self, h2size)
-        if h2 != "stock":
+        h2_chain_main = H2Chain(self.data, self.data["postes"].index)
+        if h2 == "stock":  # Electrolyser, storage lp and fuel cell at every substation
+            h2_chain_main.import_electrolyser(self, h2size)
+            h2_chain_main.import_h2_storage_lp(self, h2size)
+            h2_chain_main.import_fc(self, h2size)
+        else:  # Refueling stations on the substations concerned
             h2_places_buses = pd.Series([], dtype=str)
             h2_places_train = pd.Series([], dtype=str)
             if "buses" in h2:
@@ -149,8 +150,14 @@ class EnergyNetwork(pypsa.Network):
                 h2_places_train = self.data['load_train'].index.to_series()
                 h2_demand = H2Demand(h2_places_train, self.data_dir)
                 h2_demand.import_h2_train(self)
-            h2_places = pd.concat([h2_places_buses, h2_places_train]).drop_duplicates().reset_index(drop=True)  # stations are pooled
-            h2_chain = H2Chain(self.data, h2_places)
+            self.h2_places = pd.concat([h2_places_buses, h2_places_train]).drop_duplicates().reset_index(drop=True)  # stations are pooled
+            h2_chain = H2Chain(self.data, self.h2_places)
+            if "stock" in h2:  # Electrolyser, storage lp and fuel cell at every substation
+                h2_chain_main.import_electrolyser(self, h2size)
+                h2_chain_main.import_h2_storage_lp(self, h2size)
+                h2_chain_main.import_fc(self, h2size)
+            else:  # Electrolyser only at refueling station
+                h2_chain.import_electrolyser(self, h2size)
             h2_chain.import_compressor(self)
             h2_chain.import_h2_storage_hp(self)
 
@@ -305,10 +312,8 @@ class EnergyNetwork(pypsa.Network):
             coords=(self.get_extendable_i('Store'),))
 
         # Constraints for the definition of the hydrogen chain
-        if h2 in ["bus", "train"]:  # TODO voir pour généraliser train et bus
-            H2Chain(self.data, self.data['load_car'][self.scenario][:h2station]).constraint_prodsup_bus(self, model,
-                                                                                                 self.horizon)
-            # H2Chain(self.data, self.data["load_train"].index.to_series()).constraint_prodsup_bus(self, model, self.horizon)
+        if h2 != "stock":
+            H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
 
         # Constraints for the definition of the existing storages
         ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
@@ -318,19 +323,16 @@ class EnergyNetwork(pypsa.Network):
 
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies
         hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
-        hydrau_xa = pd.Series(hydrau).to_xarray()
-        hydrau_xa = hydrau_xa.rename({'index': 'hydrau'})
+        hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})
         BaseProduction(self.data["generator_data"], "Hydraulique").constraint_disp(self, model, self.snapshots, hydrau_xa, ext)
         BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots, hydrau, ext)
 
         bioenergie = self.generators[self.generators.index.str.contains("Bioénergie")].index.to_list()
-        bioenergie_xa = pd.Series(bioenergie).to_xarray()
-        bioenergie_xa = bioenergie_xa.rename({'index': 'bioenergie'})
+        bioenergie_xa = pd.Series(bioenergie).to_xarray().rename({'index': 'bioenergie'})
         BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots, bioenergie_xa, ext)
 
         bioethanol = self.generators[self.generators.index.str.contains("TAC bioéthanol")].index.to_list()
-        bioethanol_xa = pd.Series(bioethanol).to_xarray()
-        bioethanol_xa = bioethanol_xa.rename({'index': 'bioethanol'})
+        bioethanol_xa = pd.Series(bioethanol).to_xarray().rename({'index': 'bioethanol'})
         BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots,
                                                                                       bioethanol_xa, ext)
         for i in sec_new:
@@ -338,15 +340,13 @@ class EnergyNetwork(pypsa.Network):
             if data_list.any():
                 if i == 'Geothermie':
                     index_list = self.generators[data_list].index.to_list()
-                    index_list_xa = pd.Series(index_list).to_xarray()
-                    index_list_xa = index_list_xa.rename({'index': i})
+                    index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
                     BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
                     BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots,
                                                                                       index_list, False)
                 else:
                     index_list = self.generators[data_list].index.to_list()
-                    index_list_xa = pd.Series(index_list).to_xarray()
-                    index_list_xa = index_list_xa.rename({'index': i})
+                    index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
                     BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
                     BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots, index_list, False)
 
