@@ -13,9 +13,17 @@ class ElectricalGrid:
 
     R = 0.06  # Reactance, source : cours de Robin
     X = 0.37  # Resistance
-    CAP_MAX = 88  # Maximal capacity, source : Vers l'autonomie energetique des ZNI - ADEME
-    # TODO à update fonction de la puissance (pb linéarité ?)
-    CAPCOST_LINES = 10400 + 25000  # €/MVA, cost for extending s_nom by 1 MVA (source rapport ADEME)
+    # Power line conductors capacity and cost (€/km), source : Vers l'autonomie energetique des ZNI - ADEME
+    COST_COND = 212  # TODO 'a' de la linéarité cout/MVA (à update plus tard)
+    CAP_MAX_1 = 39
+    COST_COND_1 = 4200
+    CAP_MAX_2 = 50
+    COST_COND_2 = 7400
+    CAP_MAX_3 = 67
+    COST_COND_3 = 10400
+    CAP_MAX_4 = 88
+    COST_COND_4 = 14900
+    COST_FIX = 25000  # €/km, cost for extending s_nom by 1 MVA (source rapport ADEME)
     ISLAND_FACTOR = 1.2  # Islanding factor
     ENV_F = 1  # Environmental factor
     ENV_V = 1  # Environmental voltage
@@ -62,37 +70,32 @@ class ElectricalGrid:
                 # One line can link more than two substations
                 for i in range(len(row["Nom de la ligne"].split('/')) - 1):
                     for j in range(i + 1, len(row["Nom de la ligne"].split('/'))):
-                        new_name0 = re.sub(pattern, '', row["bus" + str(i)])
-                        new_name1 = re.sub(pattern, '', row["bus" + str(j)])
-                        self.network.add(
-                            "Line",
-                            row["bus" + str(i)] + " to " + row["bus" + str(j)] + " " + row["Type"],
-                            bus0="electricity bus " + new_name0,
-                            bus1="electricity bus " + new_name1,
-                            s_nom=row["Capacite (MVA)"],
-                            s_nom_extendable=True,
-                            s_nom_min=row["Capacite (MVA)"],
-                            s_nom_max=self.CAP_MAX,
-                            x=self.X,
-                            r=self.R,
-                            capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
-                        )
+                        new_name = [row["bus" + str(i)], row["bus" + str(j)],
+                                    re.sub(pattern, '', row["bus" + str(i)]), re.sub(pattern, '', row["bus" + str(j)])]
+                        self.importing_line(row, new_name, row["Capacite (MVA)"], row["Capacite (MVA)"], self.CAP_MAX_4,
+                                            self.COST_COND)
             else:
-                new_name0 = re.sub(pattern, '', row["bus0"])
-                new_name1 = re.sub(pattern, '', row["bus1"])
-                self.network.add(
-                    "Line",
-                    row["bus0"] + " to " + row["bus1"] + " " + row["Type"],
-                    bus0="electricity bus " + new_name0,
-                    bus1="electricity bus " + new_name1,
-                    s_nom=row["Capacite (MVA)"],
-                    s_nom_extendable=True,
-                    s_nom_min=row["Capacite (MVA)"],
-                    s_nom_max=self.CAP_MAX,
-                    x=self.X,
-                    r=self.R,
-                    capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
-                )
+                new_name = [row["bus0"], row["bus1"],
+                            re.sub(pattern, '', row["bus0"]), re.sub(pattern, '', row["bus1"])]
+                self.importing_line(row, new_name, row["Capacite (MVA)"], row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
+
+    def importing_line(self, row, name, cap, cap_min, cap_max, cost):
+        """
+        Importing a power line with PyPSA structure.
+        """
+        self.network.add(
+            "Line",
+            name[0] + " to " + name[1] + " " + row["Type"],
+            bus0="electricity bus " + name[2],
+            bus1="electricity bus " + name[3],
+            s_nom=cap,
+            s_nom_extendable=True,
+            s_nom_min=cap_min,
+            s_nom_max=cap_max,
+            x=self.X,
+            r=self.R,
+            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR  # TODO Capital cost of extending s_nom by 1 MVA.
+        )
 
 
 class ExistingStorages:
