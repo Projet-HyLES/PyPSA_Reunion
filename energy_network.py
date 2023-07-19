@@ -123,9 +123,26 @@ class EnergyNetwork(pypsa.Network):
         # Import generators
         self.import_generators(ext)
 
-        # Update hydraulic generator values
+        # Update generator max production values for a year
         if not ext:
             self.update_hydraulic_generator_values()
+            for _, row in self.data['generator_data'][['max_capa', 'technology', 'max_year', 'min_year']].dropna().iterrows():
+                if row['technology'] == 'Biomasse':
+                    self.data['generator_data'].loc[
+                        self.data['generator_data']['technology'] == row['technology'], 'max_year'] = \
+                        row['max_year'] * self.generators['p_nom'].filter(regex='Biomasse|Bagasse|Bioénergie|bioéthanol').sum() / row[
+                            'max_capa']
+                    self.data['generator_data'].loc[
+                        self.data['generator_data']['technology'] == row['technology'], 'min_year'] = \
+                        row['min_year'] * self.generators['p_nom'].filter(regex='Biomasse|Bagasse|Bioénergie|bioéthanol').sum() / row[
+                            'max_capa']
+                else:
+                    self.data['generator_data'].loc[
+                        self.data['generator_data']['technology'] == row['technology'], 'max_year'] = \
+                        row['max_year'] * self.generators['p_nom'].filter(regex=row['technology']).sum() / row['max_capa']
+                    self.data['generator_data'].loc[
+                        self.data['generator_data']['technology'] == row['technology'], 'min_year'] = \
+                        row['min_year'] * self.generators['p_nom'].filter(regex=row['technology']).sum() / row['max_capa']
 
         # Import electrical demand and additional batteries
         electrical_demand = ElectricalDemand(self)
@@ -335,6 +352,11 @@ class EnergyNetwork(pypsa.Network):
         bioethanol_xa = pd.Series(bioethanol).to_xarray().rename({'index': 'bioethanol'})
         BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots,
                                                                                       bioethanol_xa, ext)
+
+        biomasse = self.generators[self.generators.index.str.contains("Biomasse")].index.to_list()
+        bagasse = self.generators[self.generators.index.str.contains("Bagasse")].index.to_list()
+        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse + bioethanol + bioenergie, ext)
+
         for i in sec_new:
             data_list = self.generators.index.str.contains(i)
             if data_list.any():
@@ -368,19 +390,6 @@ class EnergyNetwork(pypsa.Network):
             model.add_constraints(model.variables["Generator-p_nom"][etm[1]].to_linexpr() - model.variables['x_etm1'] * self.generators['p_nom_max'][etm[1]] <= 0, name="p_etm_11")
             model.add_constraints(model.variables["Generator-p_nom"][etm[1]].to_linexpr() - model.variables['x_etm1'] * self.generators['p_nom_max'][etm[1]] >= 0, name="p_etm_12")
 
-        # TODO Modèle biomasse fait rapidement, à update plus tard
-        # if ext:
-        #     biomasse = self.generators[self.generators.index.str.contains("asse")].index.to_list() + bioenergie
-        #     model.add_constraints(
-        #         sum(model.variables["Generator-p"][j, i] for i in biomasse + bioethanol for j in list(self.snapshots)) -
-        #         1100000 * sum(model.variables["Generator-p_nom"][i] for i in biomasse) / sum(
-        #             self.generators["p_nom_max"][i] for i in biomasse) <= 0,
-        #         name="limit2_biomasse")
-        biomasse = self.generators[self.generators.index.str.contains("Biomasse")].index.to_list() + bioenergie + bioethanol
-        bagasse = self.generators[self.generators.index.str.contains("Bagasse")].index.to_list()
-        model.add_constraints(
-                 sum(model.variables["Generator-p"][j, i] for i in biomasse+bagasse for j in list(self.snapshots)) <= 1100000,
-                 name="limit2_biomasse")
 
         # Constraints for water consumption
         # v_water, c_water = cs.impact_constraint(self, model, 'water')
