@@ -6,6 +6,7 @@ import xarray as xr
 import numpy as np
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+from math import *
 from pypsa.plot import add_legend_patches, add_legend_circles, add_legend_lines
 import functions_used as functions
 import additional_constraints as cs
@@ -156,7 +157,7 @@ class EnergyNetwork(pypsa.Network):
             h2_chain_main.import_electrolyser(self, h2size)
             h2_chain_main.import_h2_storage_lp(self, h2size)
             h2_chain_main.import_fc(self, h2size)
-        else:  # Refueling stations on the substations concerned
+        elif h2 != 'None':  # Refueling stations on the substations concerned
             h2_places_buses = pd.Series([], dtype=str)
             h2_places_train = pd.Series([], dtype=str)
             if "buses" in h2:
@@ -306,7 +307,7 @@ class EnergyNetwork(pypsa.Network):
         :param ext: bool, switch to allow the capacity of some generators to be extendable
         :return: costs and environmental impact TODO ou n'importe quoi d'autre en soi
         """
-        print("INFO: creating '{}' optimization...".format(obj))
+        print("INFO: creating '{}' optimisation...".format(obj))
         tic = time.time()
         model = self.optimize.create_model(transmission_losses=1)  # TODO comparison of results/calculation time for different factors
 
@@ -329,7 +330,7 @@ class EnergyNetwork(pypsa.Network):
             coords=(self.get_extendable_i('Store'),))
 
         # Constraints for the definition of the hydrogen chain
-        if h2 != "stock":
+        if (h2 != "stock") and (h2 != "None"):
             H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
 
         # Constraints for the definition of the existing storages
@@ -399,36 +400,59 @@ class EnergyNetwork(pypsa.Network):
         print("INFO: creating the model took {} minutes.".format((toc - tic) / 60))
         tic = time.time()
 
-        if obj == 'multi':  # TODO à tester (est-ce possible d'optimiser à nouveau sans reconstruire ?), manque front de Pareto et enregistrement de chaque système optimisé
+        if obj == 'multi':
+            network_list = []
+            cost_list = []
+            env_list = []
 
+            print('START OF THE MULTI-OBJECTIVE OPTIMISATION : ECONOMIC MINIMUM PERFORMED...')
             self.optimize.solve_model(solver_name=solver, **solver_options)
             if not self.model.status == 'ok':
                 raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
-            network_cost = self  # TODO tester si possible
+            network_list.append(self)
+            cost_list.append(cs.impact_result(self, 'cost'))
+            env_list.append(cs.impact_result(self, 'env'))
+            print('ECONOMIC MINIMUM:', cost_list[0])
+            print('ENVIRONMENTAL MAXIMUM:', env_list[0])
 
-            min_costs = cs.impact_result(self, 'cost')
-            max_env = cs.impact_result(self, 'env')
-
+            # Update of objective function to have the environmental optimum
             obj_stock = model.objective
-            model.objective = cs.impact_constraint(self, model, obj)[0].to_linexpr()
+            model.objective = cs.impact_constraint(self, model, 'env')[0].to_linexpr()
+            print('ENVIRONMENTAL MINIMUM PERFORMED...')
             self.optimize.solve_model(solver_name=solver, **solver_options)
             if not self.model.status == 'ok':
                 raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
-            network_env = self  # TODO tester si possible
 
+            network_env = self
+            max_cost = cs.impact_result(self, 'cost')
             min_env = cs.impact_result(self, 'env')
+            print('ECONOMIC MAXIMUM:', max_cost)
+            print('ENVIRONMENTAL MINIMUM:', min_env)
 
-            step = (max_env - min_env) / 5  # nombre d'itérations fixé arbitrairement
-            for i in list(range(min_env, max_env, step)):
+            # Start of the multi-objective optimisation with epsilon-constraint method
+            step = (env_list[0] - min_env) / 5  # Number of iterations arbitrarily set
+            model.objective = obj_stock  # Going back to economic optimum
+            for i in list(range(floor(min_env), floor(env_list[0]), floor(step))):
                 # Constraints for environmental impact within multi-objective optimisation
                 v_env, c_env = cs.impact_constraint(self, model, 'env')
-                model.add_constraints(v_env <= i - c_env,
-                                      name="env_impact")  # à voir pour implémenter la méthode augmentée par la suite
+                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later
+                print('PERFORMING OPTIMISATION {} / 5'.format(list(range(floor(min_env), floor(env_list[0]), floor(step))).index(i) + 1))
                 self.optimize.solve_model(solver_name=solver, **solver_options)
                 if not self.model.status == 'ok':
                     raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
 
-            return network_cost, network_env
+                network_list.append(self)
+                cost_list.append(cs.impact_result(self, 'cost'))
+                env_list.append(cs.impact_result(self, 'env'))
+                model.constraints.remove(name="env_impact")
+                print('ECONOMIC OPTIMUM:', cs.impact_result(self, 'cost'))
+                print('ENVIRONMENTAL OPTIMUM:', cs.impact_result(self, 'env'))
+
+            network_list.append(network_env)
+            cost_list.append(max_cost)
+            env_list.append(min_env)
+
+            return network_list, cost_list, env_list
 
 
         else:
