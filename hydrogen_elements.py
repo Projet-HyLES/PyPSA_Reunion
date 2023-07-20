@@ -92,7 +92,7 @@ class H2Chain:
 
     def import_h2_storage_hp(self, network):
         # Static and series loads are grouped together
-        total_load = pd.concat([network.loads.groupby('bus').sum().p_set.filter(regex='hydrogen') * 24 * 3,
+        total_load = pd.concat([network.loads.groupby('bus').sum(numeric_only=True).p_set.filter(regex='hydrogen') * 24 * 3,
                                 network.loads_t.p_set.filter(regex='hydrogen').groupby(pd.to_datetime(network.loads_t.p_set.index).date).sum().max() * 3])
         # Static and series loads are summed when on the same station in order to have a global demand per station
         total_load_total = pd.Series([], dtype=float)
@@ -107,7 +107,6 @@ class H2Chain:
                      e_nom=0,  # Nominal power (MW)
                      e_nom_extendable=True,  # The capacity can be extended
                      e_nom_min=total_load_total.tolist(),  # Minimum value of capacity
-                     e_cyclic=True,
                      capital_cost=functions.calculate_capital_costs(self.storage_data["discount_rate"].iloc[0],
                                                                     self.storage_data["lifetime"].iloc[0],
                                                                     self.storage_data["fixed_OM (%)"].iloc[0],
@@ -240,6 +239,33 @@ class H2Chain:
         model.add_constraints(electrolyzer_prodsup, coords=(places,), name="electrolyzer_prodsup")
         model.add_constraints(compressor_prodsup, coords=(places,), name="compressor_prodsup")
 
+    def constraint_cyclic_soc(self, n, model, horizon, p):
+        places = self.places.to_xarray()
+        
+        def cyclic_inf(m, k):
+            """
+            Constraint for the initial state of charge of the storage to be below the final state of charge, times a
+            certain percentage.
+            :param m: model
+            :param k: station
+            :return:
+            """
+            return m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] -\
+                m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] * (1 + p/100) <= 0
+            
+        def cyclic_sup(m, k):
+            """
+            Constraint for the initial state of charge of the storage to be above the final state of charge, times a
+            certain percentage.
+            :param m: model
+            :param k: station
+            :return:
+            """
+            return m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] - \
+                m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] * (1 - p / 100) >= 0
+            
+        model.add_constraints(cyclic_inf, coords=(places,), name="cyclic_inf")
+        model.add_constraints(cyclic_sup, coords=(places,), name="cyclic_sup")
 
 class H2Demand:
     def __init__(self, ps, data_path):

@@ -305,7 +305,7 @@ class EnergyNetwork(pypsa.Network):
         :param obj: str, type of the optimisation
         :param water: float, limit for water consumption TODO à construire
         :param ext: bool, switch to allow the capacity of some generators to be extendable
-        :return: costs and environmental impact TODO ou n'importe quoi d'autre en soi
+        :return: costs and environmental impact
         """
         print("INFO: creating '{}' optimisation...".format(obj))
         tic = time.time()
@@ -329,9 +329,10 @@ class EnergyNetwork(pypsa.Network):
             self.stores['e_nom_min'][self.get_extendable_i('Store')].tolist(),
             coords=(self.get_extendable_i('Store'),))
 
-        # Constraints for the definition of the hydrogen chain
+        # Constraints for the definition of the hydrogen chain with hydrogen demand
         if (h2 != "stock") and (h2 != "None"):
             H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
+            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 5)  # TODO check influence of percentage
 
         # Constraints for the definition of the existing storages
         ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
