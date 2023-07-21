@@ -332,7 +332,8 @@ class EnergyNetwork(pypsa.Network):
         # Constraints for the definition of the hydrogen chain with hydrogen demand
         if (h2 != "stock") and (h2 != "None"):
             H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
-            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 5)  # TODO check influence of percentage
+            # H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)  # TODO check influence of percentage
+            H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 3)  # TODO check influence of days of forecasting (max 3)
 
         # Constraints for the definition of the existing storages
         ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
@@ -676,7 +677,7 @@ class EnergyNetwork(pypsa.Network):
         p_by_carrier = p_by_carrier[cols]  # to sort the area graph
         c = [colors[col] for col in p_by_carrier.columns]
         fig, ax = plt.subplots(figsize=(12, 6))
-        (p_by_carrier / 1e3).plot(kind="area", ax=ax, linewidth=4, color=c, alpha=0.7)
+        (p_by_carrier / 1e3).plot(kind="area", ax=ax, linewidth=2, color=c, alpha=0.7)
         (stores / 1e3).plot(ax=ax, linestyle='dashed')
         ax.legend(ncol=4, loc="upper left")
         ax.set_ylabel("GW")

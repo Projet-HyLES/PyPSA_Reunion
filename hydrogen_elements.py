@@ -92,8 +92,8 @@ class H2Chain:
 
     def import_h2_storage_hp(self, network):
         # Static and series loads are grouped together
-        total_load = pd.concat([network.loads.groupby('bus').sum(numeric_only=True).p_set.filter(regex='hydrogen') * 24 * 3,
-                                network.loads_t.p_set.filter(regex='hydrogen').groupby(pd.to_datetime(network.loads_t.p_set.index).date).sum().max() * 3])
+        total_load = pd.concat([network.loads.groupby('bus').sum(numeric_only=True).p_set.filter(regex='hydrogen') * 24,
+                                network.loads_t.p_set.filter(regex='hydrogen').groupby(pd.to_datetime(network.loads_t.p_set.index).date).sum().max()])
         # Static and series loads are summed when on the same station in order to have a global demand per station
         total_load_total = pd.Series([], dtype=float)
         for i in self.places:
@@ -105,8 +105,9 @@ class H2Chain:
                      # Name of the bus to which the store is attached
                      carrier=self.storage_data["carrier"].iloc[0],
                      e_nom=0,  # Nominal power (MW)
+                     e_cyclic=True,
                      e_nom_extendable=True,  # The capacity can be extended
-                     e_nom_min=total_load_total.tolist(),  # Minimum value of capacity
+                     e_nom_min=(total_load_total * 3).tolist(),  # Minimum value of capacity
                      capital_cost=functions.calculate_capital_costs(self.storage_data["discount_rate"].iloc[0],
                                                                     self.storage_data["lifetime"].iloc[0],
                                                                     self.storage_data["fixed_OM (%)"].iloc[0],
@@ -266,6 +267,32 @@ class H2Chain:
             
         model.add_constraints(cyclic_inf, coords=(places,), name="cyclic_inf")
         model.add_constraints(cyclic_sup, coords=(places,), name="cyclic_sup")
+
+    def constraint_minimal_soc(self, n, model, horizon, l):
+        places = self.places.to_xarray()
+        snap = pd.Series(horizon).to_xarray().rename({'index': 'snapshots'})
+
+        total_load = pd.concat(
+            [n.loads.groupby('bus').sum(numeric_only=True).p_set.filter(regex='hydrogen') * 24,
+             n.loads_t.p_set.filter(regex='hydrogen').groupby(
+                 pd.to_datetime(n.loads_t.p_set.index).date).sum().max()])
+        # Static and series loads are summed when on the same station in order to have a global demand per station
+        total_load_total = pd.Series([], dtype=float)
+        for i in self.places:
+            total_load_total[i] = total_load.filter(regex=i).sum()
+
+        def soc_min(m, i, j):
+            """
+            Constraint for the initial state of charge of the storage to be below the final state of charge, times a
+            certain percentage.
+            :param m: model
+            :param i: station
+            :param j: snapshot
+            :return:
+            """
+            return m.variables['Store-e'][j, "hydrogen storage hp " + i] >= l * total_load_total[i]
+
+        model.add_constraints(soc_min, coords=(places, snap), name="soc_min")
 
 class H2Demand:
     def __init__(self, ps, data_path):
