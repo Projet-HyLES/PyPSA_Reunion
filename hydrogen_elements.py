@@ -13,7 +13,7 @@ class H2Chain:
         self.places = ps
         self.x = data["postes"].loc[data["postes"].index.isin(self.places)]["Long"]
         self.y = data["postes"].loc[data["postes"].index.isin(self.places)]["Lat"]
-        self.electrolyser_data = data["link"].loc[data["link"]["technology"] == "electrolyzer"]
+        self.electrolyser_data = data["link"].loc[data["link"]["technology"] == "electrolyser"]
         self.compressor_data = data["link"].loc[data["link"]["technology"] == "compressor"]
         self.expander_data = data["link"].loc[data["link"]["technology"] == "expander"]
         self.fc_data = data["link"].loc[data["link"]["technology"] == "fuel cell"]
@@ -216,9 +216,9 @@ class H2Chain:
         places = self.places.to_xarray()
         # places = places.rename({'Nom du poste source': 'h2buses'})  # TODO est-ce important si on enlève ?
 
-        def electrolyzer_prodsup(m, k):
+        def electrolyser_prodsup(m, k):
             """
-            Constraint for the electrolyzer to work at least a certain amount of time over the year
+            Constraint for the electrolyser to work at least a certain amount of time over the year
             :param m: model
             :param k: station
             :return:
@@ -237,7 +237,7 @@ class H2Chain:
                        horizon) - len(horizon) * self.compressor_data["capacity factor"].iloc[0] * \
                 m.variables['Link-p_nom']["compressor " + k] >= 0
 
-        model.add_constraints(electrolyzer_prodsup, coords=(places,), name="electrolyzer_prodsup")
+        model.add_constraints(electrolyser_prodsup, coords=(places,), name="electrolyser_prodsup")
         model.add_constraints(compressor_prodsup, coords=(places,), name="compressor_prodsup")
 
     def constraint_cyclic_soc(self, n, model, horizon, p):
