@@ -432,13 +432,13 @@ class EnergyNetwork(pypsa.Network):
             print('ENVIRONMENTAL MINIMUM:', min_env)
 
             # Start of the multi-objective optimisation with epsilon-constraint method
-            step = (env_list[0] - min_env) / 5  # Number of iterations arbitrarily set
+            step = (env_list[0] - min_env) / 3  # Number of iterations (+1) arbitrarily set
             model.objective = obj_stock  # Going back to economic optimum
-            for i in list(range(floor(min_env), floor(env_list[0]), floor(step))):
+            for i in list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1]:
                 # Constraints for environmental impact within multi-objective optimisation
                 v_env, c_env = cs.impact_constraint(self, model, 'env')
                 model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later
-                print('PERFORMING OPTIMISATION {} / 5'.format(list(range(floor(min_env), floor(env_list[0]), floor(step))).index(i) + 1))
+                print('PERFORMING OPTIMISATION {} / 3'.format(list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1].index(i) + 1))
                 self.optimize.solve_model(solver_name=solver, **solver_options)
                 if not self.model.status == 'ok':
                     raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
