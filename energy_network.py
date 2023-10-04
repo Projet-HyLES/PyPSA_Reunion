@@ -59,8 +59,8 @@ class EnergyNetwork(pypsa.Network):
         attributes_to_add = {
             "env_f": ["float", "kgCO2eq/MW", 0.0, "fixed environmental impact", "Input (optional)"],
             "env_v": ["float", "kgCO2eq/MWh", 0.0, "variable environmental impact", "Input (optional)"],
-            "water_f": ["float", "m3/MW", 0.0, "fixed water consumption", "Input (optional)"],
-            "water_v": ["float", "m3/MWh", 0.0, "variable water consumption", "Input (optional)"]
+            "water_f": ["float", "L/MW", 0.0, "fixed water consumption", "Input (optional)"],
+            "water_v": ["float", "L/MWh", 0.0, "variable water consumption", "Input (optional)"]
         }
         components_to_update = ['Generator', 'Link', 'Store', 'StorageUnit', 'Line']
 
@@ -283,27 +283,25 @@ class EnergyNetwork(pypsa.Network):
                                                          ext)  # TODO round parce qu'il y avait un beug avec ext=True à cause de la pbq float
 
                 elif fil == "Eolien":
-                    Wind(self.data["generator_data"], "Vestas").import_wind(self, round(total_capa, 2) / 1000, self.data["wind"][ps], ps, ext)
+                    Wind(self.data["generator_data"], "onshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
 
                 elif fil == "Eolien offshore":  # TODO distinction de modèle à faire
-                    Wind(self.data["generator_data"], "Haliade").import_wind(self, round(total_capa, 2) / 1000, self.data["wind"][ps], ps, ext)
+                    Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
 
                 else:
                     BaseProduction(self.data["generator_data"], fil).import_base(self, round(total_capa, 2) / 1000, ps, ext)
                 total_capa = 0
 
 
-    def optimization(self, solver, solver_options, h2, h2station, sec_base, sec_new, obj, water, ext):
+    def optimization(self, solver, solver_options, h2, sec_new, obj, water, ext):
         """
-        Function for the creation of the optimization problem and its solving
+        Function for the creation of the optimisation problem and its solving
         :param solver: str, solver used
         :param solver_options: dict, keyword arguments used by the solver
         :param h2: str, hydrogen scenario simulated
-        :param h2station: int, number of hydrogen station simulated
-        :param sec_base: list, production sectors already installed (may only work for Reunion)
         :param sec_new: list, production sectors newly installed (may only work for Reunion)
         :param obj: str, type of the optimisation
-        :param water: float, limit for water consumption TODO à construire
+        :param water: float, limit for water consumption
         :param ext: bool, switch to allow the capacity of some generators to be extendable
         :return: costs and environmental impact
         """
@@ -332,8 +330,8 @@ class EnergyNetwork(pypsa.Network):
         # Constraints for the definition of the hydrogen chain with hydrogen demand
         if (h2 != "stock") and (h2 != "None"):
             H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
-            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)  # TODO check influence of percentage
-            H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 3)  # TODO check influence of days of forecasting (max 3)
+            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)
+            H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 1)
 
         # Constraints for the definition of the existing storages
         ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
@@ -345,7 +343,7 @@ class EnergyNetwork(pypsa.Network):
         hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
         hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})
         BaseProduction(self.data["generator_data"], "Hydraulique").constraint_disp(self, model, self.snapshots, hydrau_xa, ext)
-        BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots, hydrau, ext)
+        BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots, hydrau, ext, spec=None)
 
         bioenergie = self.generators[self.generators.index.str.contains("Bioénergie")].index.to_list()
         bioenergie_xa = pd.Series(bioenergie).to_xarray().rename({'index': 'bioenergie'})
@@ -355,25 +353,20 @@ class EnergyNetwork(pypsa.Network):
         bioethanol_xa = pd.Series(bioethanol).to_xarray().rename({'index': 'bioethanol'})
         BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots,
                                                                                       bioethanol_xa, ext)
+        BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots, bioethanol, ext, spec=None)
 
         biomasse = self.generators[self.generators.index.str.contains("Biomasse")].index.to_list()
         bagasse = self.generators[self.generators.index.str.contains("Bagasse")].index.to_list()
-        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse + bioethanol + bioenergie, ext)
+        BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots, bagasse, ext, spec="min")
+        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse + bioenergie, ext, spec="max")
 
         for i in sec_new:
             data_list = self.generators.index.str.contains(i)
             if data_list.any():
-                if i == 'Geothermie':
-                    index_list = self.generators[data_list].index.to_list()
-                    index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
-                    BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
-                    BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots,
-                                                                                      index_list, False)
-                else:
-                    index_list = self.generators[data_list].index.to_list()
-                    index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
-                    BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
-                    BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots, index_list, False)
+                index_list = self.generators[data_list].index.to_list()
+                index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
+                BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
+                BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots, index_list, False, spec=None)
 
         if ext:
             # Only one potential for geothermal energy and OTEC: all or nothing (/!\ MILP /!\)
@@ -403,7 +396,6 @@ class EnergyNetwork(pypsa.Network):
         tic = time.time()
 
         if obj == 'multi':
-            network_list = []
             cost_list = []
             env_list = []
 
@@ -411,11 +403,15 @@ class EnergyNetwork(pypsa.Network):
             self.optimize.solve_model(solver_name=solver, **solver_options)
             if not self.model.status == 'ok':
                 raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
-            network_list.append(self)
             cost_list.append(cs.impact_result(self, 'cost'))
             env_list.append(cs.impact_result(self, 'env'))
             print('ECONOMIC MINIMUM:', cost_list[0])
             print('ENVIRONMENTAL MAXIMUM:', env_list[0])
+            print('Water consumption:', cs.impact_result(self, 'water'))
+            print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
+            enr_inter, operation = self.generator_data()
+            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/cost min')  # TODO replicability ATTENTION MOO test doit exister (peut créer 1 dossier mais pas 2)
+            print('Network successfully exported.')
 
             # Update of objective function to have the environmental optimum
             obj_stock = model.objective
@@ -425,36 +421,45 @@ class EnergyNetwork(pypsa.Network):
             if not self.model.status == 'ok':
                 raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
 
-            network_env = self
             max_cost = cs.impact_result(self, 'cost')
             min_env = cs.impact_result(self, 'env')
             print('ECONOMIC MAXIMUM:', max_cost)
             print('ENVIRONMENTAL MINIMUM:', min_env)
+            print('Water consumption:', cs.impact_result(self, 'water'))
+            print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
+            enr_inter, operation = self.generator_data()
+            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/env min')  # TODO replicability
+            print('Network successfully exported.')
 
             # Start of the multi-objective optimisation with epsilon-constraint method
             step = (env_list[0] - min_env) / 3  # Number of iterations (+1) arbitrarily set
             model.objective = obj_stock  # Going back to economic optimum
             for i in list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1]:
+                # Number of the iteration
+                a = list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1].index(i) + 1
                 # Constraints for environmental impact within multi-objective optimisation
                 v_env, c_env = cs.impact_constraint(self, model, 'env')
-                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later
-                print('PERFORMING OPTIMISATION {} / 3'.format(list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1].index(i) + 1))
+                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later (faire une comparaison temps de calcul, pertinence des résultats
+                print('PERFORMING OPTIMISATION {} / 2'.format(a))
                 self.optimize.solve_model(solver_name=solver, **solver_options)
                 if not self.model.status == 'ok':
                     raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
 
-                network_list.append(self)
                 cost_list.append(cs.impact_result(self, 'cost'))
                 env_list.append(cs.impact_result(self, 'env'))
                 model.constraints.remove(name="env_impact")
                 print('ECONOMIC OPTIMUM:', cs.impact_result(self, 'cost'))
                 print('ENVIRONMENTAL OPTIMUM:', cs.impact_result(self, 'env'))
+                print('Water consumption:', cs.impact_result(self, 'water'))
+                print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
+                enr_inter, operation = self.generator_data()
+                self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/Pareto front ' + str(a))  # TODO replicability
+                print('Network successfully exported.')
 
-            network_list.append(network_env)
             cost_list.append(max_cost)
             env_list.append(min_env)
 
-            return network_list, cost_list, env_list
+            return cost_list, env_list
 
 
         else:
@@ -529,8 +534,8 @@ class EnergyNetwork(pypsa.Network):
                 gen = self.links.loc[self.links[self.links.index.str.contains("electrolyser")].index][['bus0', 'p_nom_opt']].set_index('bus0').squeeze()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid before optimization - electrolysers"
-                legend1 = None
-                legend2 = None
+                legend1 = self.carriers.loc[self.links.carrier.unique()]['color']
+                legend2 = self.links.carrier.unique()
                 save = "network_map_ely.png"
 
             elif fc:
@@ -539,8 +544,8 @@ class EnergyNetwork(pypsa.Network):
                 gen = self.links.loc[self.links[self.links.index.str.contains("fuel cell")].index][['bus1', 'p_nom_opt']].set_index('bus1').squeeze()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid before optimization - fuel cells"
-                legend1 = None
-                legend2 = None
+                legend1 = self.carriers.loc[self.links.carrier.unique()]['color']
+                legend2 = self.links.carrier.unique()
                 save = "network_map_fc.png"
 
         fig = plt.figure()
@@ -591,22 +596,7 @@ class EnergyNetwork(pypsa.Network):
         fig.savefig("electricity_mix.png", bbox_inches="tight", dpi=300)
 
         # Duration curve
-        df1 = pd.concat([(gen['water'] / pow['water'].sum()).rename('Hydraulic').sort_values(
-            ascending=False).reset_index(),
-                         (gen['wind offshore'] / pow['wind offshore']).rename('Offshore').sort_values(
-                             ascending=False).reset_index(),
-                         (gen['wind onshore'] / pow['wind onshore']).rename('Wind').sort_values(
-                             ascending=False).reset_index(),
-                         (gen['biogaz'] / (pow['biogaz'])).rename('Bioenergy').sort_values(
-                             ascending=False).reset_index(),
-                         (gen['bagasse'] / pow['bagasse']).rename('Bagass').sort_values(ascending=False).reset_index(),
-                         (gen['biomass'] / pow['biomass']).rename('Biomass').sort_values(ascending=False).reset_index(),
-                         (gen['geothermal energy'] / pow['geothermal energy']).rename('Geothermal energy').sort_values(
-                             ascending=False).reset_index(),
-                         (gen['ocean thermal energy'] / pow['ocean thermal energy']).rename('OTEC').sort_values(
-                             ascending=False).reset_index(),
-                         (gen['solar'] / pow['solar']).rename('PV').sort_values(ascending=False).reset_index()],
-                        axis=1)
+        df1 = pd.concat([(gen[a] / pow[a]).sort_values(ascending=False).reset_index() for a in self.generators.carrier.unique()], axis=1)
         df1 = df1.drop(['snapshot'], axis=1)
         ax = df1.plot()
         ax.grid(True, linestyle='-.', which='both')
@@ -634,7 +624,7 @@ class EnergyNetwork(pypsa.Network):
         stor = self.stores_t.p.sum(axis=1)
         stor[stor < 0] = 0
         df2 = pd.concat([gen.sum(axis=1) + stor + self.storage_units_t.p_dispatch.sum(axis=1),
-                         (gen['wind offshore'] + gen['wind onshore'] + gen['solar']) * 100 / gen.sum(axis=1)], axis=1)
+                         (gen['wind onshore'] + gen['solar']) * 100 / gen.sum(axis=1)], axis=1)
         # ax = df2.plot(kind='scatter', x=0, y=1)
         # ax.grid(True, linestyle='-.', which='both')
         # ax.set_title('Diagram of the operating points of the electrical system', fontsize=17)
