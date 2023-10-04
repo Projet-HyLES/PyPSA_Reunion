@@ -19,16 +19,16 @@ if __name__ == '__main__':
     current_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(current_dir, 'Data')
 
-    h2_scenario = 'None'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
+    h2_scenario = 'stock'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
     h2_installations = None
     h2_bus_scenario = None
     nb_station = None
     nb_disp = None
     stations = {}
-    if "bus" in h2_scenario:
+    if "buses" in h2_scenario:
         h2_bus_scenario = "freqA"  # freqA, freqB
-        nb_station = 2  # 2 ou 3
-        nb_disp = 3  # 1, 2 ou 3 par station
+        nb_station = 3  # 2 ou 3
+        nb_disp = 2  # 1, 2 ou 3 par station
     extension_production = False  # if True, the capacity of some generators is extendable
 
     # Import of the network
@@ -50,22 +50,21 @@ if __name__ == '__main__':
 
     solver_options = {'Method': 2, 'DegenMoves': 0, 'BarHomogeneous': 1}
     if obj == 'multi':
-        network_list, cost_list, env_list = network.optimization(solver="gurobi", solver_options=solver_options,
-                                                                 h2=h2_scenario, h2station=nb_station,
-                                                                 sec_base=sector_base, sec_new=sector_new,
-                                                                 obj=obj, water=limit_water,
-                                                                 ext=extension_production)
+        cost_list, env_list = network.optimization(solver="gurobi", solver_options=solver_options,
+                                                   h2=h2_scenario, sec_new=sector_new,
+                                                   obj=obj, water=limit_water,
+                                                   ext=extension_production)
+        fig = plt.figure()
         plt.scatter(cost_list, env_list)
         plt.title('Pareto front of the simulated system')
         plt.xlabel('Costs (€)')
         plt.ylabel('Environmental impact (?)')
-        plt.tight_layout()
-        plt.savefig("pareto_front.png", bbox_inches="tight", dpi=300)
+        fig.tight_layout()
+        fig.savefig("pareto_front.png", bbox_inches="tight", dpi=300)
 
     else:
         cost_impact, env_impact, water_impact = network.optimization(solver="gurobi", solver_options=solver_options,
-                                                                     h2=h2_scenario, h2station=nb_station,
-                                                                     sec_base=sector_base, sec_new=sector_new,
+                                                                     h2=h2_scenario, sec_new=sector_new,
                                                                      obj=obj, water=limit_water,
                                                                      ext=extension_production)
 
