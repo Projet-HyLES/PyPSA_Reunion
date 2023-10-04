@@ -305,10 +305,10 @@ def get_holidays(days):
     return df_holidays
 
 
-def prod_vestas(umin, umax, unom, rho, diam, u, capa, x):
-    # TODO proposer un modèle différent pour offshore
+def prod_vestas(type, umin, umax, unom, rho, diam, u, capa, x):
     """
     Calculate the energy produced by a wind turbine at a time t.
+    :param type: model used (offshore or onshore)
     :param umin: minimal wind speed
     :param umax: maximal wind speed
     :param unom: nominal wind speed
@@ -322,9 +322,12 @@ def prod_vestas(umin, umax, unom, rho, diam, u, capa, x):
     if (u <= umin) or (u >= umax):
         return 0
     if unom <= u <= umax:
-        return capa * 1000
+        return capa * x  # in MW
     else:
-        return 1/2 * (-0.01 * u**2 + 0.1324 * u + 0.0177) * rho * u**3 * math.pi * (diam/2)**2 * x/1000
+        if type == "onshore":
+            return 1/2 * (-0.01 * u**2 + 0.1324 * u + 0.0177) * rho * u**3 * math.pi * (diam/2)**2 * x/1e6  # in MW
+        elif type == "offshore":
+            return 1/2 * (-0.0084 * u**2 + 0.1452 * u - 0.147) * rho * u**3 * math.pi * (diam/2)**2 * x/1e6  # in MW
 
 
 def creation_profil_bus(horizon, days, cons_week, cons_sunday, data):
@@ -358,6 +361,7 @@ def creation_profil_bus(horizon, days, cons_week, cons_sunday, data):
     ser = pd.Series(my_list)
     ser.index = horizon
     return ser
+
 
 def create_weighted_rainfall(prec_file, power_file, ps):
     """
