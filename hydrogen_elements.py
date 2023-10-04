@@ -107,7 +107,7 @@ class H2Chain:
                      e_nom=0,  # Nominal power (MW)
                      e_cyclic=True,
                      e_nom_extendable=True,  # The capacity can be extended
-                     e_nom_min=(total_load_total * 3).tolist(),  # Minimum value of capacity
+                     e_nom_min=(total_load_total * 1).tolist(),  # Minimum value of capacity
                      capital_cost=functions.calculate_capital_costs(self.storage_data["discount_rate"].iloc[0],
                                                                     self.storage_data["lifetime"].iloc[0],
                                                                     self.storage_data["fixed_OM (%)"].iloc[0],
@@ -214,7 +214,6 @@ class H2Chain:
 
     def constraint_prodsup_bus(self, n, model, horizon):
         places = self.places.to_xarray()
-        # places = places.rename({'Nom du poste source': 'h2buses'})  # TODO est-ce important si on enlève ?
 
         def electrolyser_prodsup(m, k):
             """
