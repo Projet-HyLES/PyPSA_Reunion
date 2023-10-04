@@ -30,6 +30,8 @@ def impact_constraint(n, m, keyword):
         v += sum(
             m.variables['StorageUnit-p_dispatch'][t, i] for t in list(n.snapshots)) * n.storage_units[keyword + "_v"][i]
         c += n.storage_units['p_nom'][i] * n.storage_units[keyword + "_f"][i]
+    for i in n.lines.index.tolist():
+        v += m.variables['Line-s_nom'][i] * n.lines[keyword + "_f"][i]
     return v, c
 
 
