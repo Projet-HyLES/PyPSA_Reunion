@@ -1,5 +1,8 @@
 import functions_used as functions
 import pandas as pd
+import numpy as np
+from windpowerlib import ModelChain, WindTurbine, create_power_curve
+from windpowerlib import data as wt
 
 
 # Definition of the electricity generation technologies : PV, wind, base
@@ -74,24 +77,43 @@ class PV:
 
 
 class Wind:
-    def __init__(self, data, brand):
+    def __init__(self, data, type):
         self.rho = 1.225  # Air density (kg/m3)
-        # TODO changer la distinction ? Plus de précision ? Plus de choix de marque ?
-        if brand == "Vestas":  # onshore
+        self.type = type
+
+        if self.type == "onshore":  # onshore
+            vestas_on = pd.read_csv('/home/afrancoi/PyPSA/Codes/HyLES/Data/Vestas_1.csv', sep=';')
+            turbine = {'nominal_power': 2e6,  # in W
+                       'hub_height': 80,  # in m
+                       'rotor_diameter': 110,
+                       'power_curve': pd.DataFrame(
+                           data={'value': vestas_on['Puissance (kw)'] * 1000,  # in W
+                                 'wind_speed': vestas_on['Vitesse de vent (m/s)']})  # in m/s
+                       }
+            self.my_turbine = WindTurbine(**turbine)
+
+            self.capa = 2  # Capacity of one turbine (MW)
             self.v_min = 3  # Minimal wind speed (m/s)
             self.v_nom = 11.5  # Nominal wind speed (m/s)
             self.v_max = 20  # Maximal wind speed (m/s)
             self.diam = 110  # Rotor swept area exposed to the wind (m)
             self.filiere = "Eolien"
-        elif brand == "Haliade":  # offshore TODO à update
-            # self.v_min = 3  # Minimal wind speed (m/s)
-            # self.v_nom = 12  # Nominal wind speed (m/s)
-            # self.v_max = 25  # Maximal wind speed (m/s)
-            # self.diam = 150.95  # Rotor swept area exposed to the wind (m)
-            self.v_min = 3  # Minimal wind speed (m/s)
-            self.v_nom = 11.5  # Nominal wind speed (m/s)
-            self.v_max = 20  # Maximal wind speed (m/s)
-            self.diam = 110  # Rotor swept area exposed to the wind (m)
+        elif self.type == "offshore":
+            vestas_off = pd.read_csv('/home/afrancoi/PyPSA/Codes/HyLES/Data/Vestas_2.csv', sep=';')
+            turbine = {'nominal_power': 9.5e6,  # in W
+                       'hub_height': 140,  # in m
+                       'rotor_diameter': 164,
+                       'power_curve': pd.DataFrame(
+                           data={'value': vestas_off['Puissance (kw)'] * 1000,  # in W
+                                 'wind_speed': vestas_off['Vitesse de vent (m/s)']})  # in m/s
+                       }
+            self.my_turbine = WindTurbine(**turbine)
+
+            self.capa = 9.5  # Capacity of one turbine (MW)
+            self.v_min = 3.5  # Minimal wind speed (m/s)
+            self.v_nom = 14  # Nominal wind speed (m/s)
+            self.v_max = 25  # Maximal wind speed (m/s)
+            self.diam = 164  # Rotor swept area exposed to the wind (m)
             self.filiere = "Eolien offshore"
         self.carrier = data.loc[data["technology"] == self.filiere].squeeze()["carrier"]
         self.efficiency = data.loc[data["technology"] == self.filiere].squeeze()["efficiency"]
@@ -107,13 +129,26 @@ class Wind:
         self.water_f = data.loc[data["technology"] == self.filiere].squeeze()["water_f"]
         self.water_v = data.loc[data["technology"] == self.filiere].squeeze()["water_v"]
 
-    def import_wind(self, network, tot, v, ps, ext):
-        # TODO modèle de production eolien offshore à changer
+    def import_wind(self, network, tot, v, t, ps, ext):
         # We make the model take as much electricity from wind sources as possible
-        power = pd.DataFrame(index=network.horizon, columns=["Power"])
+        poweron = pd.DataFrame(index=network.horizon, columns=["Power"])
         for i in network.horizon:
-            power["Power"].loc[i] = functions.prod_vestas(self.v_min, self.v_max, self.v_nom, self.rho, self.diam,
-                                                          v.loc[i], tot, tot / 2)
+            poweron["Power"].loc[i] = functions.prod_vestas(self.type, self.v_min, self.v_max, self.v_nom, self.rho,
+                                                            self.diam,
+                                                            v.loc[i], self.capa, tot / self.capa)
+
+        weather = pd.DataFrame(columns=['variable_name', 'pressure', 'temperature', 'wind_speed', 'roughness_length'])
+        weather['variable_name'] = network.horizon
+        weather['pressure'] = 101325
+        weather['temperature'] = np.array(t.tolist()) + 273.15
+        weather['wind_speed'] = v.tolist()
+        weather['roughness_length'] = 0.15
+        weather.columns = pd.MultiIndex.from_tuples([(col, 10) for col in weather.columns])
+
+        mc_my_turbine = ModelChain(self.my_turbine).run_model(weather)
+        self.my_turbine.power_output = mc_my_turbine.power_output
+        poweroff = self.my_turbine.power_output * tot / self.capa
+
         if ext:
             current_data = pd.read_csv(
                 network.data_path + '/registre-des-installations-de-production-et-de-stockage.csv',
@@ -131,8 +166,8 @@ class Wind:
                         # Nominal power (MW)
                         p_nom_min=round(current_data[current_data["Poste source"] == ps]['Puissance installée (kW)'].sum(), 2) / 1000,
                         p_nom_max=tot,
-                        p_min_pu=power["Power"] / (tot * 1000),  # Minimum output
-                        p_max_pu=power["Power"] / (tot * 1000),  # Maximum output
+                        p_min_pu=poweron["Power"] / tot,  # Minimum output
+                        p_max_pu=poweron["Power"] / tot,  # Maximum output
                         marginal_cost=functions.calculate_marginal_costs(self.fuelcost, self.variableom,
                                                                          self.efficiency),
                         capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
@@ -143,24 +178,46 @@ class Wind:
                         water_v=self.water_v,
                         )
         else:
-            network.add("Generator",  # PyPSA component
-                        ps + " " + self.filiere,  # Name of the element
-                        bus="electricity bus " + ps,
-                        # Name of the bus to which the technology is attached
-                        carrier=self.carrier,  # Name of the carrier of the technology
-                        p_nom=tot,  # Nominal power (MW)
-                        p_min_pu=power["Power"] / (tot * 1000),  # Minimum output
-                        p_max_pu=power["Power"] / (tot * 1000),  # Maximum output
-                        marginal_cost=functions.calculate_marginal_costs(self.fuelcost,
-                                                                         self.variableom,
-                                                                         self.efficiency),
-                        capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
-                                                                       self.fixedOM_t, self.CAPEX, 1),
-                        env_f=self.env_f,
-                        env_v=self.env_v,
-                        water_f=self.water_f,
-                        water_v=self.water_v,
-                        )
+            if self.type == "onshore":  # Modèle Cp fait à la main
+                network.add("Generator",  # PyPSA component
+                            ps + " " + self.filiere,  # Name of the element
+                            bus="electricity bus " + ps,
+                            # Name of the bus to which the technology is attached
+                            carrier=self.carrier,  # Name of the carrier of the technology
+                            p_nom=tot,  # Nominal power (MW)
+                            p_min_pu=poweron["Power"] / tot,  # Minimum output
+                            p_max_pu=poweron["Power"] / tot,  # Maximum output
+                            marginal_cost=functions.calculate_marginal_costs(self.fuelcost,
+                                                                             self.variableom,
+                                                                             self.efficiency),
+                            capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime,
+                                                                           self.fixedOM_p,
+                                                                           self.fixedOM_t, self.CAPEX, 1),
+                            env_f=self.env_f,
+                            env_v=self.env_v,
+                            water_f=self.water_f,
+                            water_v=self.water_v,
+                            )
+            else:  # Modèle WindPowerLib
+                network.add("Generator",  # PyPSA component
+                            ps + " " + self.filiere,  # Name of the element
+                            bus="electricity bus " + ps,
+                            # Name of the bus to which the technology is attached
+                            carrier=self.carrier,  # Name of the carrier of the technology
+                            p_nom=tot,  # Nominal power (MW)
+                            p_min_pu=(poweroff / (tot * 1000000)).tolist(),  # Minimum output
+                            p_max_pu=(poweroff / (tot * 1000000)).tolist(),  # Maximum output
+                            marginal_cost=functions.calculate_marginal_costs(self.fuelcost,
+                                                                             self.variableom,
+                                                                             self.efficiency),
+                            capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime,
+                                                                           self.fixedOM_p,
+                                                                           self.fixedOM_t, self.CAPEX, 1),
+                            env_f=self.env_f,
+                            env_v=self.env_v,
+                            water_f=self.water_f,
+                            water_v=self.water_v,
+                            )
 
 
 class BaseProduction:
@@ -258,7 +315,7 @@ class BaseProduction:
 
         model.add_constraints(disp, coords=(xa,), name="disp_" + self.filiere)
 
-    def constraint_min_max(self, n, model, snap, xa, ext):
+    def constraint_min_max(self, n, model, snap, xa, ext, spec):
         """
         Constraint to define the minimum and maximum yearly generation of power generation facilities
         :param n: network
@@ -266,6 +323,7 @@ class BaseProduction:
         :param snap: snapshots
         :param xa: xarray of the technologies
         :param ext: bool, switch to allow the capacity of some generators to be extendable
+        :param spec: str, if only a min or a max constrain must be added
         :return:
         """
         if ext:
@@ -280,9 +338,18 @@ class BaseProduction:
                     n.generators["p_nom_max"][i] for i in xa) <= 0,
                 name="limit2_" + str(self.filiere))
         else:
-            model.add_constraints(
-                sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) >= self.min_y,
-                name="limit1_" + str(self.filiere))
-            model.add_constraints(
-                sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) <= self.max_y,
-                name="limit2_" + str(self.filiere))
+            if spec == "min":
+                model.add_constraints(
+                    sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) >= self.min_y,
+                    name="limit1_" + str(self.filiere))
+            elif spec == "max":
+                model.add_constraints(
+                    sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) <= self.max_y,
+                    name="limit2_" + str(self.filiere))
+            else:
+                model.add_constraints(
+                    sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) >= self.min_y,
+                    name="limit1_" + str(self.filiere))
+                model.add_constraints(
+                    sum(model.variables["Generator-p"][j, i] for i in xa for j in list(snap)) <= self.max_y,
+                    name="limit2_" + str(self.filiere))
