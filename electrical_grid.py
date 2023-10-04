@@ -25,8 +25,8 @@ class ElectricalGrid:
     COST_COND_4 = 14900
     COST_FIX = 25000  # €/km, cost for extending s_nom by 1 MVA (source rapport ADEME)
     ISLAND_FACTOR = 1.2  # Islanding factor
-    ENV_F = 1  # Environmental factor
-    ENV_V = 1  # Environmental voltage
+    ENV_F = 0.01  # Environmental impact fixed
+    ENV_V = 0.01  # Environmental impact variable
     WATER_F = 1  # Water factor
     WATER_V = 1  # Water voltage
 
@@ -94,7 +94,8 @@ class ElectricalGrid:
             s_nom_max=cap_max,
             x=self.X,
             r=self.R,
-            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR  # TODO Capital cost of extending s_nom by 1 MVA.
+            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR,  # TODO Capital cost of extending s_nom by 1 MVA.
+            env_f=self.ENV_F
         )
 
 
