@@ -1,7 +1,7 @@
 import functions_used as functions
 import pandas as pd
 import numpy as np
-from windpowerlib import ModelChain, WindTurbine, create_power_curve
+from windpowerlib import ModelChain, WindTurbine
 from windpowerlib import data as wt
 
 
@@ -68,6 +68,8 @@ class PV:
                         p_max_pu=(r / 1000) * (1 + self.alpha * (Tm - 25)) * self.efficiency,  # Maximum output
                         marginal_cost=functions.calculate_marginal_costs(self.fuelcost, self.variableom,
                                                                          self.efficiency),
+                        capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
+                                                                       self.fixedOM_t, self.CAPEX, 1),
                         # Marginal cost of production of 1MWh
                         env_f=self.env_f,
                         env_v=self.env_v,
