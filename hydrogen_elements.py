@@ -70,12 +70,14 @@ class H2Chain:
     def import_compressor(self, network):
         network.madd("Link",  # PyPSA component
                      "compressor " + self.places,  # Name of the element
-                     bus0=("hydrogen bus 30 bar " + self.places).tolist(),  # Name of first bus : electricity bus
-                     bus1=("hydrogen bus 350 bar " + self.places).tolist(),  # Name of the second bus : hydrogen bus
+                     bus0=("hydrogen bus 30 bar " + self.places).tolist(),  # Name of first bus : hydrogen bus low pressure
+                     bus1=("hydrogen bus 350 bar " + self.places).tolist(),  # Name of second bus : hydrogen bus high pressure
+                     bus2=("electricity bus " + self.places).tolist(),  # Name of third bus : electricity bus
                      p_nom=0,
                      p_nom_extendable=True,  # Active power which can pass through link is extendable
                      p_nom_min=0,
                      efficiency=self.compressor_data["efficiency"].iloc[0],
+                     efficiency2=self.compressor_data["efficiency2"].iloc[0],
                      # Efficiency of power transfer from bus0 to bus1
                      capital_cost=functions.calculate_capital_costs(self.compressor_data["discount_rate"].iloc[0],
                                                                     self.compressor_data["lifetime"].iloc[0],
