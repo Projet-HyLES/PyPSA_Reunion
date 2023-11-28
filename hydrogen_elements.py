@@ -118,7 +118,6 @@ class H2Chain:
                                                                     1),  # €/MWh, cost of extending e_nom by 1 MWh
                      marginal_cost=functions.calculate_marginal_costs(self.storage_data["fuel_cost"].iloc[0],
                                                                       self.storage_data["variable_OM"].iloc[0],
-                                                                      self.storage_data["efficiency store"].iloc[0] +
                                                                       self.storage_data["efficiency dispatch"].iloc[0]),
                      # marginal cost of the production of 1MWh
                      env_f=self.storage_data["env_f"].iloc[0],
@@ -145,8 +144,6 @@ class H2Chain:
                                                                         1),  # €/MWh, cost of extending e_nom by 1 MWh
                          marginal_cost=functions.calculate_marginal_costs(self.storage_data["fuel_cost"].iloc[0],
                                                                           self.storage_data["variable_OM"].iloc[0],
-                                                                          self.storage_data["efficiency store"].iloc[
-                                                                              0] +
                                                                           self.storage_data["efficiency dispatch"].iloc[
                                                                               0]),
                          # marginal cost of the production of 1MWh
@@ -164,8 +161,6 @@ class H2Chain:
                          e_cyclic=True,
                          marginal_cost=functions.calculate_marginal_costs(self.storage_data["fuel_cost"].iloc[0],
                                                                           self.storage_data["variable_OM"].iloc[0],
-                                                                          self.storage_data["efficiency store"].iloc[
-                                                                              0] +
                                                                           self.storage_data["efficiency dispatch"].iloc[
                                                                               0]),
                          # marginal cost of the production of 1MWh
@@ -302,7 +297,7 @@ class H2Demand:
 
     def import_h2_buses(self, network, h2bus, nb_disp):
         if os.path.exists(self.data_path + '/conso_hydrogene_' + str(h2bus) + '.csv'):
-            data_conso_h2 = pd.read_csv(self.data_path + '/conso_hydrogene_' + str(h2bus) + '.csv', sep=',',
+            data_conso_h2 = pd.read_csv(self.data_path + '/conso_hydrogene_' + str(h2bus) + '_' + str(network.snapshots.year.unique().values[0]) + '.csv', sep=',',
                                         encoding='latin-1',
                                         index_col=0)
             data_conso_h2.index = network.horizon
