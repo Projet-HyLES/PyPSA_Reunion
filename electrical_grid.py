@@ -10,7 +10,6 @@ class ElectricalGrid:
     """
     Represents the electrical grid in the network.
     """
-
     R = 0.06  # Reactance, source : cours de Robin
     X = 0.37  # Resistance
     # Power line conductors capacity and cost (€/km), source : Vers l'autonomie energetique des ZNI - ADEME
@@ -236,7 +235,7 @@ class ExistingStorages:
         :rtype: float
         """
         return functions.calculate_marginal_costs(
-            self.fuelcost[i], self.variableom[i], self.efficiencystore[i] * self.efficiencydispatch[i]
+            self.fuelcost[i], self.variableom[i], self.efficiencydispatch[i]
         )
 
     def constraints_existing_battery(self, n, model, horizon):
@@ -378,11 +377,6 @@ class AdditionalStorages:
             p_nom=0,
             p_nom_extendable=True,
             efficiency=self.dataStorage["efficiency store"].iloc[0],
-            marginal_cost=functions.calculate_marginal_costs(
-                self.dataStorage["fuel_cost"].iloc[0],
-                self.dataStorage["variable_OM"].iloc[0],
-                self.dataStorage["efficiency store"].iloc[0]
-            ),
         )
 
         self.network.madd(
@@ -405,12 +399,6 @@ class AdditionalStorages:
                 self.dataStorage["fixed_OM (tot)"].iloc[0],
                 self.dataStorage["CAPEX"].iloc[0],
                 1
-            ),
-            # marginal cost of the production of 1MWh
-            marginal_cost=functions.calculate_marginal_costs(
-                self.dataStorage["fuel_cost"].iloc[0],
-                self.dataStorage["variable_OM"].iloc[0],
-                self.dataStorage["efficiency store"].iloc[0] + self.dataStorage["efficiency dispatch"].iloc[0]
             ),
             env_f=self.dataStorage["env_f"].iloc[0],
             env_v=self.dataStorage["env_v"].iloc[0],
