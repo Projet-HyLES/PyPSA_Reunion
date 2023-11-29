@@ -10,7 +10,7 @@ def impact_constraint(n, m, keyword):
     v = 0
     c = 0
     for i in n.generators.index.tolist():
-        if hasattr(m.variables, 'Generator-p_nom'):
+        if n.generators['p_nom_extendable'][i]:
             v += m.variables['Generator-p_nom'][i] * n.generators[keyword + "_f"][i] + sum(
                 m.variables['Generator-p'][t, i] for t in list(n.snapshots)) * n.generators[keyword + "_v"][i]
         else:
