@@ -247,8 +247,8 @@ class H2Chain:
             :param k: station
             :return:
             """
-            return m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] -\
-                m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] * (1 + p/100) <= 0
+            return m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] -\
+                m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] * (1 + p/100) <= 0
             
         def cyclic_sup(m, k):
             """
@@ -258,8 +258,8 @@ class H2Chain:
             :param k: station
             :return:
             """
-            return m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] - \
-                m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] * (1 - p / 100) >= 0
+            return m.variables['Store-e'][horizon[-1], "hydrogen storage hp " + k] - \
+                m.variables['Store-e'][horizon[0], "hydrogen storage hp " + k] * (1 - p / 100) >= 0
             
         model.add_constraints(cyclic_inf, coords=(places,), name="cyclic_inf")
         model.add_constraints(cyclic_sup, coords=(places,), name="cyclic_sup")
