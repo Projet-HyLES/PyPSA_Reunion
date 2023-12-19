@@ -11,7 +11,7 @@ from pypsa.plot import add_legend_patches, add_legend_circles, add_legend_lines
 import functions_used as functions
 import additional_constraints as cs
 from electrical_grid import ElectricalGrid, ExistingStorages, AdditionalStorages
-from electricity_production import PV, Wind, BaseProduction
+from electricity_production import PV, Wind, BaseProduction, ETM
 from electrical_demand import ElectricalDemand
 from hydrogen_elements import H2Chain, H2Demand
 
@@ -162,6 +162,7 @@ class EnergyNetwork(pypsa.Network):
             h2_places_train = pd.Series([], dtype=str)
             if "buses" in h2:
                 h2_places_buses = self.data['load_car'][self.scenario][:h2station]
+                # h2_places_buses = self.data['load_car'][100][:h2station]
                 h2_demand = H2Demand(h2_places_buses, self.data_dir)
                 h2_demand.import_h2_buses(self, h2bus, h2disp)
             if "train" in h2:
@@ -287,6 +288,9 @@ class EnergyNetwork(pypsa.Network):
 
                 elif fil == "Eolien offshore":  # TODO distinction de modèle à faire
                     Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
+
+                elif fil == "ETM":
+                    ETM(self.data["generator_data"]).import_etm(self, total_capa/1000, ps)
 
                 else:
                     BaseProduction(self.data["generator_data"], fil).import_base(self, round(total_capa, 2) / 1000, ps, ext)
@@ -691,12 +695,12 @@ class EnergyNetwork(pypsa.Network):
         self.stores_t.e[h2stor_index].plot(title="Energy stored in hydrogen storages over the year")
         if bus:
             # # Plot d'une figure qui montre le fonctionnement sur une station (ici Le Gol)
-            # df = pd.concat([self.loads_t['p_set']['Le Gol hydrogen load'], -self.links_t['p1']['Le Gol electrolyzer'], -self.links_t['p1']['Le Gol compressor'], self.stores_t['p']['Le Gol H2 storage']], axis=1)
+            # df = pd.concat([self.loads_t['p_set']['Le Gol hydrogen buses load'], -self.links_t['p1']['electrolyser Le Gol'], -self.links_t['p1']['compressor Le Gol'], self.stores_t['p']['hydrogen storage hp Le Gol']], axis=1)
             # df = df * 1000 / 33.33
-            # df = df.rename(columns={"Le Gol hydrogen load": "Demande en hydrogène",
-            #                         "Le Gol electrolyzer": "Quantité en sortie d'électrolyseur",
-            #                         "Le Gol compressor": "Quantité en sorte de compresseur",
-            #                         "Le Gol H2 storage": "Quantité entrante/sortante du stockage"})
+            # df = df.rename(columns={"Le Gol hydrogen buses load": "Demande en hydrogène",
+            #                         "electrolyser Le Gol": "Quantité en sortie d'électrolyseur",
+            #                         "compressor Le Gol": "Quantité en sortie de compresseur",
+            #                         "hydrogen storage hp Le Gol": "Quantité entrante/sortante du stockage"})
             # ax = df[72:72 + 24 * 3].plot()
             # plt.grid()
             # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5),
@@ -706,6 +710,8 @@ class EnergyNetwork(pypsa.Network):
             # ax.set_ylabel("Quantité d'hydrogène (kgH2)", fontsize=17)
             # plt.tight_layout()
             # plt.savefig("hydrogen.png", bbox_inches="tight", dpi=300)
+
+            # network.loads_t.p_set['Marquet hydrogen buses load'].sum() + network.loads_t.p_set['Le Gol hydrogen buses load'].sum() + network.loads_t.p_set['Bois Rouge hydrogen buses load'].sum()
 
             return ely_index, h2stor_index
         else:

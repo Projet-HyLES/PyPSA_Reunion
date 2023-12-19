@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from windpowerlib import ModelChain, WindTurbine
 from windpowerlib import data as wt
-
+import fnmatch
+import os
 
 # Definition of the electricity generation technologies : PV, wind, base
 
@@ -30,7 +31,7 @@ class PV:
         # We make the model take as much electricity from PV sources as possible
         if ext:
             current_data = pd.read_csv(
-                network.data_path + '/registre-des-installations-de-production-et-de-stockage.csv',
+                network.data_dir + '/registre-des-installations-de-production-et-de-stockage.csv',
                 encoding='latin-1', sep=';',
                 usecols=['Poste source', 'Filière', 'Puissance installée (kW)'])
             current_data = current_data[current_data["Filière"] == "PV"]
@@ -76,6 +77,50 @@ class PV:
                         water_f=self.water_f,
                         water_v=self.water_v,
                         )
+
+
+class ETM:
+    def __init__(self, data):
+        self.carrier = data.loc[data["technology"] == "ETM"].squeeze()["carrier"]
+        self.efficiency = data.loc[data["technology"] == "ETM"].squeeze()["efficiency"]
+        self.fuelcost = data.loc[data["technology"] == "ETM"].squeeze()["fuel_cost"]
+        self.variableom = data.loc[data["technology"] == "ETM"].squeeze()["variable_OM"]
+        self.discountrate = data.loc[data["technology"] == "ETM"].squeeze()["discount_rate"]
+        self.lifetime = data.loc[data["technology"] == "ETM"].squeeze()["lifetime"]
+        self.fixedOM_p = data.loc[data["technology"] == "ETM"].squeeze()["fixed_OM (%)"]
+        self.fixedOM_t = data.loc[data["technology"] == "ETM"].squeeze()["fixed_OM (tot)"]
+        self.CAPEX = data.loc[data["technology"] == "ETM"].squeeze()["nominal investment"]
+        self.env_f = data.loc[data["technology"] == "ETM"].squeeze()["env_f"]
+        self.env_v = data.loc[data["technology"] == "ETM"].squeeze()["env_v"]
+        self.water_f = data.loc[data["technology"] == "ETM"].squeeze()["water_f"]
+        self.water_v = data.loc[data["technology"] == "ETM"].squeeze()["water_v"]
+
+    def import_etm(self, network, tot, ps):
+        # We make the model take as much electricity from PV sources as possible
+        liste_capa = []
+        for file in os.listdir(network.data_dir):
+            if fnmatch.fnmatch(file, "capacityfactor_etm*"):
+                liste_capa.append(0.7*int(file[19:21]))
+        etm_file = pd.read_csv(network.data_dir + '/capacityfactor_etm_' + str(round(min(liste_capa, key=lambda x:abs(x-tot))/0.7)) + 'MW.csv', index_col=0)
+        etm_file.index = network.horizon
+        network.add("Generator",  # PyPSA component
+                    ps + " ETM",  # Name of the element
+                    bus="electricity bus " + ps,
+                    # Name of the bus to which the technology is attached
+                    carrier=self.carrier,  # Name of the carrier of the technology
+                    p_nom=tot,  # Nominal power (MW)
+                    p_min_pu=etm_file['p_net'],  # Minimum output
+                    p_max_pu=etm_file['p_net'],  # Maximum output
+                    marginal_cost=functions.calculate_marginal_costs(self.fuelcost, self.variableom,
+                                                                     self.efficiency),
+                    capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
+                                                                   self.fixedOM_t, self.CAPEX, 1),
+                    # Marginal cost of production of 1MWh
+                    env_f=self.env_f,
+                    env_v=self.env_v,
+                    water_f=self.water_f,
+                    water_v=self.water_v,
+                    )
 
 
 class Wind:
@@ -153,7 +198,7 @@ class Wind:
 
         if ext:
             current_data = pd.read_csv(
-                network.data_path + '/registre-des-installations-de-production-et-de-stockage.csv',
+                network.data_dir + '/registre-des-installations-de-production-et-de-stockage.csv',
                 encoding='latin-1', sep=';',
                 usecols=['Poste source', 'Filière', 'Puissance installée (kW)'])
             current_data = current_data[current_data["Filière"] == self.filiere]
@@ -247,7 +292,7 @@ class BaseProduction:
     def import_base(self, network, tot, ps, ext):
         if ext:
             current_data = pd.read_csv(
-                network.data_path + '/registre-des-installations-de-production-et-de-stockage.csv',
+                network.data_dir + '/registre-des-installations-de-production-et-de-stockage.csv',
                 encoding='latin-1', sep=';',
                 usecols=['Poste source', 'Filière', 'Puissance installée (kW)'])
             current_data = current_data[current_data["Filière"] == self.filiere]
