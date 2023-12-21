@@ -366,7 +366,7 @@ class EnergyNetwork(pypsa.Network):
 
         for i in sec_new:
             data_list = self.generators.index.str.contains(i)
-            if data_list.any():
+            if data_list.any() and i != "ETM":
                 index_list = self.generators[data_list].index.to_list()
                 index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
                 BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
@@ -473,7 +473,7 @@ class EnergyNetwork(pypsa.Network):
             self.optimize.solve_model(solver_name=solver, **solver_options)
 
             if not self.model.status == 'ok':
-                raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
+                raise ValueError('ERROR: optimization was not successful, results cannot be plotted.')
 
             toc = time.time()
             print("INFO: solving took {} minutes.".format((toc - tic)/60))
