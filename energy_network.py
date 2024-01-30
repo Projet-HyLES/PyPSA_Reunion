@@ -60,7 +60,8 @@ class EnergyNetwork(pypsa.Network):
             "env_f": ["float", "kgCO2eq/MW", 0.0, "fixed environmental impact", "Input (optional)"],
             "env_v": ["float", "kgCO2eq/MWh", 0.0, "variable environmental impact", "Input (optional)"],
             "water_f": ["float", "L/MW", 0.0, "fixed water consumption", "Input (optional)"],
-            "water_v": ["float", "L/MWh", 0.0, "variable water consumption", "Input (optional)"]
+            "water_v": ["float", "L/MWh", 0.0, "variable water consumption", "Input (optional)"],
+            "base_CAPEX": ["float", "€", 0.0, "base cost of CAPEX for some generators", "Input (optional)"]
         }
         components_to_update = ['Generator', 'Link', 'Store', 'StorageUnit', 'Line']
 
@@ -394,6 +395,11 @@ class EnergyNetwork(pypsa.Network):
         # Constraints for water consumption
         # v_water, c_water = cs.impact_constraint(self, model, 'water')
         # model.add_constraints(v_water <= water - c_water, name="water_impact")
+
+        # Addition to the objective function of the OTEC CAPEX base (among others)
+        objective_constant_2 = sum(self.generators["base_CAPEX"][i] for i in self.generators.index.tolist())
+        object_const_2 = model.add_variables(objective_constant_2, objective_constant_2, name="objective_constant_2")
+        model.objective += (-1 * object_const_2)
 
         toc = time.time()
         print("INFO: creating the model took {} minutes.".format((toc - tic) / 60))

@@ -46,7 +46,7 @@ def impact_result(n, keyword):
     if keyword == 'cost':
         for i in n.generators.index.tolist():
             s += (n.generators['p_nom_opt'][i] - n.generators['p_nom'][i]) * n.generators["capital_cost"][i] + sum(
-                n.generators_t['p'][i][t] for t in list(n.snapshots)) * n.generators["marginal_cost"][i]
+                n.generators_t['p'][i][t] for t in list(n.snapshots)) * n.generators["marginal_cost"][i] + n.generators["base_CAPEX"][i]
         for i in n.links.index.tolist():
             s += (n.links['p_nom_opt'][i] - n.links['p_nom'][i]) * n.links["capital_cost"][i] + sum(
                 n.links_t['p0'][i][t] for t in list(n.snapshots)) * n.links["marginal_cost"][i]

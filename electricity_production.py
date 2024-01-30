@@ -20,7 +20,7 @@ class PV:
         self.lifetime = data.loc[data["technology"] == "PV"].squeeze()["lifetime"]
         self.fixedOM_p = data.loc[data["technology"] == "PV"].squeeze()["fixed_OM (%)"]
         self.fixedOM_t = data.loc[data["technology"] == "PV"].squeeze()["fixed_OM (tot)"]
-        self.CAPEX = data.loc[data["technology"] == "PV"].squeeze()["nominal investment"]
+        self.CAPEX = data.loc[data["technology"] == "PV"].squeeze()["nominal investment variable"]
         self.env_f = data.loc[data["technology"] == "PV"].squeeze()["env_f"]
         self.env_v = data.loc[data["technology"] == "PV"].squeeze()["env_v"]
         self.water_f = data.loc[data["technology"] == "PV"].squeeze()["water_f"]
@@ -89,7 +89,8 @@ class ETM:
         self.lifetime = data.loc[data["technology"] == "ETM"].squeeze()["lifetime"]
         self.fixedOM_p = data.loc[data["technology"] == "ETM"].squeeze()["fixed_OM (%)"]
         self.fixedOM_t = data.loc[data["technology"] == "ETM"].squeeze()["fixed_OM (tot)"]
-        self.CAPEX = data.loc[data["technology"] == "ETM"].squeeze()["nominal investment"]
+        self.CAPEX_v = data.loc[data["technology"] == "ETM"].squeeze()["nominal investment variable"]
+        self.CAPEX_f = data.loc[data["technology"] == "ETM"].squeeze()["nominal investment fixed"]
         self.env_f = data.loc[data["technology"] == "ETM"].squeeze()["env_f"]
         self.env_v = data.loc[data["technology"] == "ETM"].squeeze()["env_v"]
         self.water_f = data.loc[data["technology"] == "ETM"].squeeze()["water_f"]
@@ -114,8 +115,10 @@ class ETM:
                     marginal_cost=functions.calculate_marginal_costs(self.fuelcost, self.variableom,
                                                                      self.efficiency),
                     capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
-                                                                   self.fixedOM_t, self.CAPEX, 1),
-                    # Marginal cost of production of 1MWh
+                                                                   self.fixedOM_t, self.CAPEX_v, 1),
+                    base_CAPEX=functions.calculate_capital_costs(self.discountrate, self.lifetime, self.fixedOM_p,
+                                                                 self.fixedOM_t, self.CAPEX_f, 1) - self.fixedOM_t * 1,
+                    # Fixed O&M costs must be subtracted, as calculated in functions.calculate_capital_costs
                     env_f=self.env_f,
                     env_v=self.env_v,
                     water_f=self.water_f,
@@ -170,7 +173,7 @@ class Wind:
         self.lifetime = data.loc[data["technology"] == self.filiere].squeeze()["lifetime"]
         self.fixedOM_p = data.loc[data["technology"] == self.filiere].squeeze()["fixed_OM (%)"]
         self.fixedOM_t = data.loc[data["technology"] == self.filiere].squeeze()["fixed_OM (tot)"]
-        self.CAPEX = data.loc[data["technology"] == self.filiere].squeeze()["nominal investment"]
+        self.CAPEX = data.loc[data["technology"] == self.filiere].squeeze()["nominal investment variable"]
         self.env_f = data.loc[data["technology"] == self.filiere].squeeze()["env_f"]
         self.env_v = data.loc[data["technology"] == self.filiere].squeeze()["env_v"]
         self.water_f = data.loc[data["technology"] == self.filiere].squeeze()["water_f"]
@@ -278,7 +281,7 @@ class BaseProduction:
         self.lifetime = data.loc[data["technology"] == self.filiere].squeeze()["lifetime"]
         self.fixedOM_p = data.loc[data["technology"] == self.filiere].squeeze()["fixed_OM (%)"]
         self.fixedOM_t = data.loc[data["technology"] == self.filiere].squeeze()["fixed_OM (tot)"]
-        self.CAPEX = data.loc[data["technology"] == self.filiere].squeeze()["nominal investment"]
+        self.CAPEX = data.loc[data["technology"] == self.filiere].squeeze()["nominal investment variable"]
         self.pminpu = data.loc[data["technology"] == self.filiere].squeeze()["p_min_pu"]
         self.pmaxpu = data.loc[data["technology"] == self.filiere].squeeze()["p_max_pu"]
         self.cf = data.loc[data["technology"] == self.filiere].squeeze()["capacity factor"]
