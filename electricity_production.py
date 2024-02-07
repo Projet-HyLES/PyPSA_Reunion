@@ -2,7 +2,6 @@ import functions_used as functions
 import pandas as pd
 import numpy as np
 from windpowerlib import ModelChain, WindTurbine
-from windpowerlib import data as wt
 import fnmatch
 import os
 
@@ -341,17 +340,6 @@ class BaseProduction:
                         env_v=self.env_v,
                         water_f=self.water_f,
                         water_v=self.water_v,
-                        # committable=row_param['committable'],  # Use unit commitment
-                        # start_up_cost=row_param['start up cost'] * total_capa,  # Cost to start up the technology (€/MW)
-                        # shut_down_cost=row_param['shut down cost'],  # Cost to shut down the technology
-                        # min_up_time=row_param['min up time'],  # Minimum up time required
-                        # min_down_time=row_param['min down time'],  # Minimum down time required
-                        # up_time_before=row_param['up time bf'],  # Time up before the modeling
-                        # down_time_before=row_param['down time bf'],  # Time down before the modeling
-                        # ramp_limit_up=row_param['ramp limit up'],  # Maximum active power increase
-                        # ramp_limit_down=row_param['ramp limit down'],  # Maximum active power decrease
-                        # ramp_limit_start_up=row_param['ramp limit on'],  # Maximum active power increase at start up
-                        # ramp_limit_shut_down=row_param['ramp limit off'],  # Maximum active power decrease at start up
                         )
 
     def constraint_disp(self, n, model, snap, xa, ext):
