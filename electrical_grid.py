@@ -127,13 +127,14 @@ class ExistingStorages:
             "efficiencydispatch": "efficiency dispatch",
             "standingloss": "standing loss",
             "capacity": "capacity",
+            "power": "power",
             "max_hours": "max hours",
             "eminpu": "soc min",
             "emaxpu": "soc max",
             "env_f": "env_f",
             "env_v": "env_v",
             "water_f": "water_f",
-            "water_v": "water_v" # TODO vraiment utile si y a déjà self.data de défini ?
+            "water_v": "water_v"
         }
 
         for attr, column_name in attributes_mapping.items():
@@ -161,7 +162,7 @@ class ExistingStorages:
             "existing battery " + i,
             bus="electricity bus " + i,
             carrier=self.carrier[i],
-            p_nom=self.capacity[i],
+            p_nom=self.power[i],
             max_hours=self.max_hours[i],
             marginal_cost=self.calculate_marginal_costs(i),
             cyclic_state_of_charge=True,
@@ -185,8 +186,8 @@ class ExistingStorages:
             "Bus",
             "existing battery bus " + i,
             carrier="electricity",
-            x=self.x[i],
-            y=self.y[i]
+            x=self.network.data["postes"].loc[self.network.data["postes"].index == i]["Long"],
+            y=self.network.data["postes"].loc[self.network.data["postes"].index == i]["Lat"]
         )
 
         self.network.add(
@@ -194,7 +195,7 @@ class ExistingStorages:
             "from existing battery link " + i,
             bus0="electricity bus " + i,
             bus1="existing battery bus " + i,
-            p_nom=self.capacity[i] / self.efficiencydispatch[i],
+            p_nom=self.power[i],
             efficiency=self.efficiencydispatch[i],
             marginal_cost=self.calculate_marginal_costs(i)
         )
@@ -204,7 +205,7 @@ class ExistingStorages:
             "to existing battery link " + i,
             bus0="existing battery bus " + i,
             bus1="electricity bus " + i,
-            p_nom=self.capacity[i],
+            p_nom=self.power[i],
             efficiency=self.efficiencystore[i]
         )
 
@@ -258,8 +259,8 @@ class ExistingStorages:
         for place in self.places:
             if self.kind[place] == "power":
                 self.add_power_constraints(model, place, snap)
-            elif self.kind[place] == "energy":
-                self.add_energy_constraints(model, place)
+            # elif self.kind[place] == "energy":
+            #     self.add_energy_constraints(model, place)
 
     def add_power_constraints(self, model, place, snap):
         """
@@ -281,7 +282,7 @@ class ExistingStorages:
             :param t: snapshot.
             :return: The constraint expression.
             """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] >= self.capacity[place] * self.eminpu[place]
+            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] >= self.power[place] * self.eminpu[place]
 
         def soc_batterie_2(m, t):
             """
@@ -290,32 +291,33 @@ class ExistingStorages:
             :param t: snapshot.
             :return: The constraint expression.
             """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] <= self.capacity[place] * self.emaxpu[place]
+            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] <= self.power[place] * self.emaxpu[place]
 
         model.add_constraints(soc_batterie_1, coords=(snap,), name="soc_batterie_1_" + str(place))
         model.add_constraints(soc_batterie_2, coords=(snap,), name="soc_batterie_2_" + str(place))
 
-    def add_energy_constraints(self, model, place):
-        """
-        Base constraint for Store component as StorageUnit component.
-
-        :param model: The optimization model.
-        :type model: <type of model>
-
-        :param place: The place where the battery is located.
-        :type place: int
-        """
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
-            name="store_fix_1_" + str(place)
-        )
-
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
-            name="store_fix_2_" + str(place)
-        )
+    # def add_energy_constraints(self, model, place):
+    #     """
+    #     Base constraint for Store component as StorageUnit component.
+    #
+    #     :param model: The optimization model.
+    #     :type model: <type of model>
+    #
+    #     :param place: The place where the battery is located.
+    #     :type place: int
+    #     """
+    #     model.add_constraints(
+    #         model.variables["Store-e_nom"]["existing battery " + place] -
+    #         model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
+    #         name="store_fix_1_" + str(place)
+    #     )
+    #
+    #     model.add_constraints(
+    #         model.variables["Store-e_nom"]["existing battery " + place] -
+    #         model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
+    #         name="store_fix_2_" + str(place)
+    #     )
+    # No need as power and capacity are fixed and non extendable
 
 
 class AdditionalStorages:
