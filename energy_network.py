@@ -531,7 +531,7 @@ class EnergyNetwork(pypsa.Network):
                         self.stores['elec bus'][i] = 'electricity bus ' + i[19:]
                     elif "hydrogen" in i:
                         self.stores['elec bus'][i] = 'electricity bus ' + i[20:]
-                gen = self.stores.groupby(['elec bus', 'carrier']).e_nom_opt.sum()
+                gen = self.stores[self.stores['elec bus'] != 0].groupby(['elec bus', 'carrier']).e_nom_opt.sum()
                 lines = self.lines.s_nom_opt / 10
                 title = "Reunion's electricity grid after optimization - storages"
                 legend1 = self.carriers.loc[self.stores.carrier.unique()]['color']
