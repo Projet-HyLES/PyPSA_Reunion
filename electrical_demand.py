@@ -6,7 +6,6 @@ import functions_used as functions
 # Definition of the electrical demand : base, VE, buses
 
 class ElectricalDemand:
-    # TODO classe à remanier pour la rendre plus réplicable
     def __init__(self, network):
 
         self.network = network
@@ -22,15 +21,17 @@ class ElectricalDemand:
     def import_demand(self):
         self.network.data["load"] = pd.DataFrame(0, index=self.horizon, columns=self.ps_transfo)
         self.network.data["load_buses"] = self.network.data["load_buses"].set_index("Réseau")
+        year = self.network.snapshots.year.unique().values[0]
         VE = self.import_VE_demand()
         BUS = self.import_bus_demand()
 
         for i in self.ps_transfo:
-            conso = pd.read_csv(self.network.data_dir+"/Consumption "+str(self.network.cons)+"/" + i + "_"+str(self.network.cons)+".csv", sep=',', encoding='latin-1',
+            conso = pd.read_csv(self.network.data_dir+"/Consumption "+str(self.network.cons)+"/" + str(year) + "_" + str(self.network.climate_scenario)+".csv", sep=',', encoding='latin-1',
                                 index_col=0).squeeze('columns')
             conso.index = self.horizon
 
-            self.network.data["load"][i] = conso + VE[i]
+        for i in self.ps_transfo:
+            self.network.data["load"][i] = conso[i] + VE[i]
 
             if i in self.network.data["load_buses"][self.network.scenario].values:
                 self.network.data["load"][i] += BUS[self.network.data["load_buses"][self.network.data["load_buses"][
@@ -108,10 +109,4 @@ class ElectricalDemand:
         if os.path.exists(self.data_dir+"/conso_bus_urbains.csv"):
             df = pd.read_csv(self.data_dir+"/conso_bus_urbains.csv", sep=',', encoding='latin-1', index_col=0)
             df.index = self.horizon
-            return df
-        else:
-            # TODO à construire pour réplicabilité
-            profils = pd.read_excel(self.data_dir+"/profil_bus_elec.xlsx", header=1, index_col=0)
-            data = [profils['week'], profils['Sunday']]
-            df = functions.creation_profil_bus(self.horizon, self.days, cons_week, cons_week/2, data)
             return df
