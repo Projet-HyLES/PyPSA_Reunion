@@ -282,12 +282,12 @@ class EnergyNetwork(pypsa.Network):
 
                 elif "PV" in fil:
                     PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps,
-                                                         ext)  # TODO round parce qu'il y avait un beug avec ext=True à cause de la pbq float
+                                                         ext)
 
                 elif fil == "Eolien":
                     Wind(self.data["generator_data"], "onshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
 
-                elif fil == "Eolien offshore":  # TODO distinction de modèle à faire
+                elif fil == "Eolien offshore":
                     Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
 
                 elif fil == "ETM":
@@ -314,7 +314,7 @@ class EnergyNetwork(pypsa.Network):
         tic = time.time()
         model = self.optimize.create_model(transmission_losses=1)  # TODO comparison of results/calculation time for different factors
 
-        # Bounds directly on the variables for nominal power  # TODO est-ce que ça a vraiment un impact ? en gros les bornes sur PyPSA ne sont définies qu'en contraintes (surprenant) et là on borne les variables directement (dans l'objectif de gagner du temps de calcul mais c'est pas sûr que ça fonctionne)
+        # Bounds directly on the variables for nominal power
         if ext:
             model.variables["Generator-p_nom"].lower = xr.DataArray(
                 self.generators['p_nom_min'][self.get_extendable_i('Generator')].tolist(),
@@ -438,7 +438,7 @@ class EnergyNetwork(pypsa.Network):
             print('Water consumption:', cs.impact_result(self, 'water'))
             print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
             enr_inter, operation = self.generator_data()
-            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/env min')  # TODO replicability
+            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/env min')
             print('Network successfully exported.')
 
             # Start of the multi-objective optimisation with epsilon-constraint method
@@ -449,7 +449,7 @@ class EnergyNetwork(pypsa.Network):
                 a = list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1].index(i) + 1
                 # Constraints for environmental impact within multi-objective optimisation
                 v_env, c_env = cs.impact_constraint(self, model, 'env')
-                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later (faire une comparaison temps de calcul, pertinence des résultats
+                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later
                 print('PERFORMING OPTIMISATION {} / 2'.format(a))
                 self.optimize.solve_model(solver_name=solver, **solver_options)
                 if not self.model.status == 'ok':
@@ -463,7 +463,7 @@ class EnergyNetwork(pypsa.Network):
                 print('Water consumption:', cs.impact_result(self, 'water'))
                 print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
                 enr_inter, operation = self.generator_data()
-                self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/Pareto front ' + str(a))  # TODO replicability
+                self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/Pareto front ' + str(a))
                 print('Network successfully exported.')
 
             cost_list.append(max_cost)
