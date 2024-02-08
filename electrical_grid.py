@@ -71,14 +71,14 @@ class ElectricalGrid:
                     for j in range(i + 1, len(row["Nom de la ligne"].split('/'))):
                         new_name = [row["bus" + str(i)], row["bus" + str(j)],
                                     re.sub(pattern, '', row["bus" + str(i)]), re.sub(pattern, '', row["bus" + str(j)])]
-                        self.importing_line(row, new_name, row["Capacite (MVA)"], row["Capacite (MVA)"], self.CAP_MAX_4,
+                        self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4,
                                             self.COST_COND)
             else:
                 new_name = [row["bus0"], row["bus1"],
                             re.sub(pattern, '', row["bus0"]), re.sub(pattern, '', row["bus1"])]
-                self.importing_line(row, new_name, row["Capacite (MVA)"], row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
+                self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
 
-    def importing_line(self, row, name, cap, cap_min, cap_max, cost):
+    def importing_line(self, row, name, cap, cap_max, cost):
         """
         Importing a power line with PyPSA structure.
         """
@@ -89,7 +89,7 @@ class ElectricalGrid:
             bus1="electricity bus " + name[3],
             s_nom=cap,
             s_nom_extendable=True,
-            s_nom_min=cap_min,
+            s_nom_min=cap,
             s_nom_max=cap_max,
             x=self.X,
             r=self.R,
