@@ -96,12 +96,12 @@ class ETM:
         self.water_v = data.loc[data["technology"] == "ETM"].squeeze()["water_v"]
 
     def import_etm(self, network, tot, ps):
-        # We make the model take as much electricity from PV sources as possible
+        # We make the model take as much electricity from ETM sources as possible
         liste_capa = []
         for file in os.listdir(network.data_dir):
             if fnmatch.fnmatch(file, "capacityfactor_etm*"):
-                liste_capa.append(0.7*int(file[19:21]))
-        etm_file = pd.read_csv(network.data_dir + '/capacityfactor_etm_' + str(round(min(liste_capa, key=lambda x:abs(x-tot))/0.7)) + 'MW.csv', index_col=0)
+                liste_capa.append(0.7*int(file[19:21]))  # recovering 0.7*capacity of the plant simulated, 0.7 to approach real production
+        etm_file = pd.read_csv(network.data_dir + '/capacityfactor_etm_' + str(round(min(liste_capa, key=lambda x:abs(x-tot))/0.7)) + 'MW.csv', index_col=0)  # recovering the closest plant size from which data are available
         etm_file.index = network.horizon
         network.add("Generator",  # PyPSA component
                     ps + " ETM",  # Name of the element
