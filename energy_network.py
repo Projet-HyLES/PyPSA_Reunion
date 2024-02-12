@@ -344,6 +344,13 @@ class EnergyNetwork(pypsa.Network):
         # Constraints for the definition of the additional storages
         AdditionalStorages(self).constraints_additionnal_battery(self, model)
 
+        # Constraint for limiting total storages
+        v_store, c_store = cs.limit_storage(self, model)
+        model.add_constraints(v_store <= 2200 - c_store, name="limit_store")
+
+        # Method for updating optimisation model of electric lines
+        # ElectricalGrid(self).import_line_model(self, model, [0, 39, 50, 67, 88], [0, 4200, 7400, 10400, 14900])
+
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies
         hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
         hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})

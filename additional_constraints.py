@@ -77,3 +77,8 @@ def impact_result(n, keyword):
                     n.storage_units_t['p_dispatch'][i][t] for t in list(n.snapshots)) * n.storage_units[keyword + "_v"][i]
 
     return s
+
+def limit_storage(n, m):
+    v_store = sum(m.variables['Store-e_nom'][k] for k in n.stores[n.stores.e_nom_extendable == True].index)
+    c_store = sum(n.stores.e_nom[k] for k in n.stores[n.stores.e_nom_extendable == False].index)
+    return v_store, c_store
