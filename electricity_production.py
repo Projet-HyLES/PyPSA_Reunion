@@ -109,7 +109,7 @@ class ETM:
                     # Name of the bus to which the technology is attached
                     carrier=self.carrier,  # Name of the carrier of the technology
                     p_nom=tot,  # Nominal power (MW)
-                    p_min_pu=etm_file['p_net'],  # Minimum output
+                    p_min_pu=0,  # Minimum output
                     p_max_pu=etm_file['p_net'],  # Maximum output
                     marginal_cost=functions.calculate_marginal_costs(self.fuelcost, self.variableom,
                                                                      self.efficiency),
