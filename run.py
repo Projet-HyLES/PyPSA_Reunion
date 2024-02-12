@@ -76,6 +76,6 @@ if __name__ == '__main__':
         network.plot_network('final', False, True, False)
         network.plot_network('final', False, False, True)
         ely, h2stor, fc = network.h2_data(bus=False)
-    elif h2_scenario is not None:
+    elif h2_scenario != 'None':
         network.plot_network('final', False, True, False)
         ely, h2stor = network.h2_data(bus=True)
