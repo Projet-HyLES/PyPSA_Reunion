@@ -349,6 +349,7 @@ class EnergyNetwork(pypsa.Network):
         model.add_constraints(v_store <= 2200 - c_store, name="limit_store")
 
         # Method for updating optimisation model of electric lines
+        # If used, capital cost of lines must be set to 0
         # ElectricalGrid(self).import_line_model(self, model, [0, 39, 50, 67, 88], [0, 4200, 7400, 10400, 14900])
 
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies

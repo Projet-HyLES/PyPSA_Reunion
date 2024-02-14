@@ -93,9 +93,40 @@ class ElectricalGrid:
             s_nom_max=cap_max,
             x=self.X,
             r=self.R,
-            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR,  # TODO Capital cost of extending s_nom by 1 MVA.
+            length=row["Longueur (km)"],
+            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR,
             env_f=self.ENV_F
         )
+
+    def import_line_model(self, n, model, capa, cost):
+        def line_sum_state(m, k):
+            """
+            Constraint for setting only one state of a line to be equal to 1
+            :param m: model
+            :param k: line
+            :return:
+            """
+            return sum(m.variables['Line-capa_state'][k, i] for i in capa) == 1
+
+        def line_sum_capa(m, k):
+            """
+            Constraint for the definition of the nominal power of a line
+            :param m: model
+            :param k: line
+            :return:
+            """
+            return sum(m.variables['Line-capa_state'][k, i]*i for i in capa[1:]) + m.variables['Line-capa_state'][k, 0]*n.lines.s_nom[k] - m.variables['Line-s_nom'][k] == 0
+
+        capa_lines_xa = pd.Series(capa).to_xarray()
+        capa_lines_xa = capa_lines_xa.rename({'index': 'capa_lines'})
+        lines_xa = pd.Series(n.lines.index).to_xarray()
+        lines_xa = lines_xa.rename({'index': 'lines'})
+        # Variables for the modularity of lines capacity
+        model.add_variables(name="Line-capa_state", coords=(lines_xa, capa_lines_xa), binary=True)
+        # Constraints for the modularity of lines capacity
+        model.add_constraints(line_sum_state, coords=(lines_xa, ), name="sum_state")
+        model.add_constraints(line_sum_capa, coords=(lines_xa, ), name="sum_capa")
+        model.objective += (sum(sum(model.variables['Line-capa_state'][k, capa[i]] * (25000 + cost[i]) * n.lines.length[k] * 1.2 for i in range(1, len(capa))) for k in n.lines.index)).to_linexpr()
 
 
 class ExistingStorages:
