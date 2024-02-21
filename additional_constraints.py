@@ -10,7 +10,7 @@ def impact_constraint(n, m, keyword):
     v = 0
     c = 0
     for i in n.generators.index.tolist():
-        if hasattr(m.variables, 'Generator-p_nom'):
+        if n.generators['p_nom_extendable'][i]:
             v += m.variables['Generator-p_nom'][i] * n.generators[keyword + "_f"][i] + sum(
                 m.variables['Generator-p'][t, i] for t in list(n.snapshots)) * n.generators[keyword + "_v"][i]
         else:
@@ -30,6 +30,8 @@ def impact_constraint(n, m, keyword):
         v += sum(
             m.variables['StorageUnit-p_dispatch'][t, i] for t in list(n.snapshots)) * n.storage_units[keyword + "_v"][i]
         c += n.storage_units['p_nom'][i] * n.storage_units[keyword + "_f"][i]
+    for i in n.lines.index.tolist():
+        v += m.variables['Line-s_nom'][i] * n.lines[keyword + "_f"][i]
     return v, c
 
 
@@ -44,7 +46,7 @@ def impact_result(n, keyword):
     if keyword == 'cost':
         for i in n.generators.index.tolist():
             s += (n.generators['p_nom_opt'][i] - n.generators['p_nom'][i]) * n.generators["capital_cost"][i] + sum(
-                n.generators_t['p'][i][t] for t in list(n.snapshots)) * n.generators["marginal_cost"][i]
+                n.generators_t['p'][i][t] for t in list(n.snapshots)) * n.generators["marginal_cost"][i] + n.generators["base_CAPEX"][i]
         for i in n.links.index.tolist():
             s += (n.links['p_nom_opt'][i] - n.links['p_nom'][i]) * n.links["capital_cost"][i] + sum(
                 n.links_t['p0'][i][t] for t in list(n.snapshots)) * n.links["marginal_cost"][i]
@@ -75,3 +77,8 @@ def impact_result(n, keyword):
                     n.storage_units_t['p_dispatch'][i][t] for t in list(n.snapshots)) * n.storage_units[keyword + "_v"][i]
 
     return s
+
+def limit_storage(n, m):
+    v_store = sum(m.variables['Store-e_nom'][k] for k in n.stores[n.stores.e_nom_extendable == True].index)
+    c_store = sum(n.stores.e_nom[k] for k in n.stores[n.stores.e_nom_extendable == False].index)
+    return v_store, c_store

@@ -10,14 +10,22 @@ class ElectricalGrid:
     """
     Represents the electrical grid in the network.
     """
-
     R = 0.06  # Reactance, source : cours de Robin
     X = 0.37  # Resistance
-    # TODO à update fonction de la puissance (pb linéarité ?)
-    CAPCOST_LINES = 10400 + 25000  # €/MVA, cost for extending s_nom by 1 MVA (source rapport ADEME)
+    # Power line conductors capacity and cost (€/km), source : Vers l'autonomie energetique des ZNI - ADEME
+    COST_COND = 212  # TODO 'a' de la linéarité cout/MVA (à update plus tard)
+    CAP_MAX_1 = 39
+    COST_COND_1 = 4200
+    CAP_MAX_2 = 50
+    COST_COND_2 = 7400
+    CAP_MAX_3 = 67
+    COST_COND_3 = 10400
+    CAP_MAX_4 = 88
+    COST_COND_4 = 14900
+    COST_FIX = 25000  # €/km, cost for extending s_nom by 1 MVA (source rapport ADEME)
     ISLAND_FACTOR = 1.2  # Islanding factor
-    ENV_F = 1  # Environmental factor
-    ENV_V = 1  # Environmental voltage
+    ENV_F = 0.01  # Environmental impact fixed
+    ENV_V = 0.01  # Environmental impact variable
     WATER_F = 1  # Water factor
     WATER_V = 1  # Water voltage
 
@@ -61,35 +69,64 @@ class ElectricalGrid:
                 # One line can link more than two substations
                 for i in range(len(row["Nom de la ligne"].split('/')) - 1):
                     for j in range(i + 1, len(row["Nom de la ligne"].split('/'))):
-                        new_name0 = re.sub(pattern, '', row["bus" + str(i)])
-                        new_name1 = re.sub(pattern, '', row["bus" + str(j)])
-                        self.network.add(
-                            "Line",
-                            row["bus" + str(i)] + " to " + row["bus" + str(j)] + " " + row["Type"],
-                            bus0="electricity bus " + new_name0,
-                            bus1="electricity bus " + new_name1,
-                            s_nom=row["Capacite (MVA)"],
-                            s_nom_extendable=True,
-                            s_nom_min=row["Capacite (MVA)"],
-                            x=self.X,
-                            r=self.R,
-                            capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
-                        )
+                        new_name = [row["bus" + str(i)], row["bus" + str(j)],
+                                    re.sub(pattern, '', row["bus" + str(i)]), re.sub(pattern, '', row["bus" + str(j)])]
+                        self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4,
+                                            self.COST_COND)
             else:
-                new_name0 = re.sub(pattern, '', row["bus0"])
-                new_name1 = re.sub(pattern, '', row["bus1"])
-                self.network.add(
-                    "Line",
-                    row["bus0"] + " to " + row["bus1"] + " " + row["Type"],
-                    bus0="electricity bus " + new_name0,
-                    bus1="electricity bus " + new_name1,
-                    s_nom=row["Capacite (MVA)"],
-                    s_nom_extendable=True,
-                    s_nom_min=row["Capacite (MVA)"],
-                    x=self.X,
-                    r=self.R,
-                    capital_cost=self.CAPCOST_LINES * row["Longueur (km)"] * self.ISLAND_FACTOR,
-                )
+                new_name = [row["bus0"], row["bus1"],
+                            re.sub(pattern, '', row["bus0"]), re.sub(pattern, '', row["bus1"])]
+                self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
+
+    def importing_line(self, row, name, cap, cap_max, cost):
+        """
+        Importing a power line with PyPSA structure.
+        """
+        self.network.add(
+            "Line",
+            name[0] + " to " + name[1] + " " + row["Type"],
+            bus0="electricity bus " + name[2],
+            bus1="electricity bus " + name[3],
+            s_nom=cap,
+            s_nom_extendable=True,
+            s_nom_min=cap,
+            s_nom_max=cap_max,
+            x=self.X,
+            r=self.R,
+            length=row["Longueur (km)"],
+            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR,
+            env_f=self.ENV_F
+        )
+
+    def import_line_model(self, n, model, capa, cost):
+        def line_sum_state(m, k):
+            """
+            Constraint for setting only one state of a line to be equal to 1
+            :param m: model
+            :param k: line
+            :return:
+            """
+            return sum(m.variables['Line-capa_state'][k, i] for i in capa) == 1
+
+        def line_sum_capa(m, k):
+            """
+            Constraint for the definition of the nominal power of a line
+            :param m: model
+            :param k: line
+            :return:
+            """
+            return sum(m.variables['Line-capa_state'][k, i]*i for i in capa[1:]) + m.variables['Line-capa_state'][k, 0]*n.lines.s_nom[k] - m.variables['Line-s_nom'][k] == 0
+
+        capa_lines_xa = pd.Series(capa).to_xarray()
+        capa_lines_xa = capa_lines_xa.rename({'index': 'capa_lines'})
+        lines_xa = pd.Series(n.lines.index).to_xarray()
+        lines_xa = lines_xa.rename({'index': 'lines'})
+        # Variables for the modularity of lines capacity
+        model.add_variables(name="Line-capa_state", coords=(lines_xa, capa_lines_xa), binary=True)
+        # Constraints for the modularity of lines capacity
+        model.add_constraints(line_sum_state, coords=(lines_xa, ), name="sum_state")
+        model.add_constraints(line_sum_capa, coords=(lines_xa, ), name="sum_capa")
+        model.objective += (sum(sum(model.variables['Line-capa_state'][k, capa[i]] * (25000 + cost[i]) * n.lines.length[k] * 1.2 for i in range(1, len(capa))) for k in n.lines.index)).to_linexpr()
 
 
 class ExistingStorages:
@@ -114,18 +151,21 @@ class ExistingStorages:
         """
         attributes_mapping = {
             "kind": "kind",
+            "carrier": "carrier",
             "fuelcost": "fuel_cost",
             "variableom": "variable_OM",
             "efficiencystore": "efficiency store",
             "efficiencydispatch": "efficiency dispatch",
             "standingloss": "standing loss",
             "capacity": "capacity",
+            "power": "power",
+            "max_hours": "max hours",
             "eminpu": "soc min",
             "emaxpu": "soc max",
             "env_f": "env_f",
             "env_v": "env_v",
             "water_f": "water_f",
-            "water_v": "water_v" # TODO vraiment utile si y a déjà self.data de défini ?
+            "water_v": "water_v"
         }
 
         for attr, column_name in attributes_mapping.items():
@@ -152,7 +192,9 @@ class ExistingStorages:
             "StorageUnit",
             "existing battery " + i,
             bus="electricity bus " + i,
-            p_nom=self.capacity[i],
+            carrier=self.carrier[i],
+            p_nom=self.power[i],
+            max_hours=self.max_hours[i],
             marginal_cost=self.calculate_marginal_costs(i),
             cyclic_state_of_charge=True,
             efficiency_store=self.efficiencystore[i],
@@ -175,8 +217,8 @@ class ExistingStorages:
             "Bus",
             "existing battery bus " + i,
             carrier="electricity",
-            x=self.x[i],
-            y=self.y[i]
+            x=self.network.data["postes"].loc[self.network.data["postes"].index == i]["Long"],
+            y=self.network.data["postes"].loc[self.network.data["postes"].index == i]["Lat"]
         )
 
         self.network.add(
@@ -184,7 +226,7 @@ class ExistingStorages:
             "from existing battery link " + i,
             bus0="electricity bus " + i,
             bus1="existing battery bus " + i,
-            p_nom=self.capacity[i] / self.efficiencydispatch[i],
+            p_nom=self.power[i],
             efficiency=self.efficiencydispatch[i],
             marginal_cost=self.calculate_marginal_costs(i)
         )
@@ -194,7 +236,7 @@ class ExistingStorages:
             "to existing battery link " + i,
             bus0="existing battery bus " + i,
             bus1="electricity bus " + i,
-            p_nom=self.capacity[i],
+            p_nom=self.power[i],
             efficiency=self.efficiencystore[i]
         )
 
@@ -202,6 +244,7 @@ class ExistingStorages:
             "Store",
             "existing battery " + i,
             bus="existing battery bus " + i,
+            carrier=self.carrier[i],
             e_nom=self.capacity[i],
             e_cyclic=True,
             standing_loss=self.standingloss[i],
@@ -224,7 +267,7 @@ class ExistingStorages:
         :rtype: float
         """
         return functions.calculate_marginal_costs(
-            self.fuelcost[i], self.variableom[i], self.efficiencystore[i] * self.efficiencydispatch[i]
+            self.fuelcost[i], self.variableom[i], self.efficiencydispatch[i]
         )
 
     def constraints_existing_battery(self, n, model, horizon):
@@ -247,8 +290,8 @@ class ExistingStorages:
         for place in self.places:
             if self.kind[place] == "power":
                 self.add_power_constraints(model, place, snap)
-            elif self.kind[place] == "energy":
-                self.add_energy_constraints(model, place)
+            # elif self.kind[place] == "energy":
+            #     self.add_energy_constraints(model, place)
 
     def add_power_constraints(self, model, place, snap):
         """
@@ -270,7 +313,7 @@ class ExistingStorages:
             :param t: snapshot.
             :return: The constraint expression.
             """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] >= self.capacity[place] * self.eminpu[place]
+            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] >= self.power[place] * self.eminpu[place]
 
         def soc_batterie_2(m, t):
             """
@@ -279,32 +322,33 @@ class ExistingStorages:
             :param t: snapshot.
             :return: The constraint expression.
             """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] <= self.capacity[place] * self.emaxpu[place]
+            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] <= self.power[place] * self.emaxpu[place]
 
         model.add_constraints(soc_batterie_1, coords=(snap,), name="soc_batterie_1_" + str(place))
         model.add_constraints(soc_batterie_2, coords=(snap,), name="soc_batterie_2_" + str(place))
 
-    def add_energy_constraints(self, model, place):
-        """
-        Base constraint for Store component as StorageUnit component.
-
-        :param model: The optimization model.
-        :type model: <type of model>
-
-        :param place: The place where the battery is located.
-        :type place: int
-        """
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
-            name="store_fix_1_" + str(place)
-        )
-
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
-            name="store_fix_2_" + str(place)
-        )
+    # def add_energy_constraints(self, model, place):
+    #     """
+    #     Base constraint for Store component as StorageUnit component.
+    #
+    #     :param model: The optimization model.
+    #     :type model: <type of model>
+    #
+    #     :param place: The place where the battery is located.
+    #     :type place: int
+    #     """
+    #     model.add_constraints(
+    #         model.variables["Store-e_nom"]["existing battery " + place] -
+    #         model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
+    #         name="store_fix_1_" + str(place)
+    #     )
+    #
+    #     model.add_constraints(
+    #         model.variables["Store-e_nom"]["existing battery " + place] -
+    #         model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
+    #         name="store_fix_2_" + str(place)
+    #     )
+    # No need as power and capacity are fixed and non extendable
 
 
 class AdditionalStorages:
@@ -366,11 +410,6 @@ class AdditionalStorages:
             p_nom=0,
             p_nom_extendable=True,
             efficiency=self.dataStorage["efficiency store"].iloc[0],
-            marginal_cost=functions.calculate_marginal_costs(
-                self.dataStorage["fuel_cost"].iloc[0],
-                self.dataStorage["variable_OM"].iloc[0],
-                self.dataStorage["efficiency store"].iloc[0]
-            ),
         )
 
         self.network.madd(
@@ -393,12 +432,6 @@ class AdditionalStorages:
                 self.dataStorage["fixed_OM (tot)"].iloc[0],
                 self.dataStorage["CAPEX"].iloc[0],
                 1
-            ),
-            # marginal cost of the production of 1MWh
-            marginal_cost=functions.calculate_marginal_costs(
-                self.dataStorage["fuel_cost"].iloc[0],
-                self.dataStorage["variable_OM"].iloc[0],
-                self.dataStorage["efficiency store"].iloc[0] + self.dataStorage["efficiency dispatch"].iloc[0]
             ),
             env_f=self.dataStorage["env_f"].iloc[0],
             env_v=self.dataStorage["env_v"].iloc[0],
