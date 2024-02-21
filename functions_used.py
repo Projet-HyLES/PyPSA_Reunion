@@ -5,6 +5,11 @@ import os.path
 import holidays
 import pytz
 import math
+import shapely
+from shapely.geometry import LineString
+from shapely.ops import transform
+import pyproj
+from pyproj import CRS
 import sys
 
 
@@ -405,3 +410,11 @@ def create_weighted_rainfall(prec_file, power_file, ps):
         somme += (prec_ok * power_file.loc[j] / power_file.sum()).values[0]
 
     return somme
+
+def calculate_distance(pointA, pointB):
+    ligne = LineString([pointA, pointB])
+    crs_4326 = CRS("EPSG:4326")
+    crs_proj = CRS("EPSG:3727")
+    project = pyproj.Transformer.from_crs(crs_4326, crs_proj).transform
+    return transform(project, ligne).length
+
