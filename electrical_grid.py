@@ -54,6 +54,18 @@ class ElectricalGrid:
             y=self.buses_y, # Latitude
         )
 
+    def import_bus_aviation(self):
+        """
+        Import a new substation to deal with additional demand for alternative fuels for the aviation sector.
+        """
+        self.network.add(
+            "Bus",
+            "electricity bus Roland Garros airport",
+            v_nom=self.buses_vnom[0],
+            x=55.509831294,
+            y=-20.887329784,
+        )
+
     def import_lines(self):
         """
         Import lines into the network.
@@ -71,20 +83,20 @@ class ElectricalGrid:
                     for j in range(i + 1, len(row["Nom de la ligne"].split('/'))):
                         new_name = [row["bus" + str(i)], row["bus" + str(j)],
                                     re.sub(pattern, '', row["bus" + str(i)]), re.sub(pattern, '', row["bus" + str(j)])]
-                        self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4,
+                        self.importing_line(row['Type'], row['Longueur (km)'], new_name, row["Capacite (MVA)"], self.CAP_MAX_4,
                                             self.COST_COND)
             else:
                 new_name = [row["bus0"], row["bus1"],
                             re.sub(pattern, '', row["bus0"]), re.sub(pattern, '', row["bus1"])]
-                self.importing_line(row, new_name, row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
+                self.importing_line(row['Type'], row['Longueur (km)'], new_name, row["Capacite (MVA)"], self.CAP_MAX_4, self.COST_COND)
 
-    def importing_line(self, row, name, cap, cap_max, cost):
+    def importing_line(self, type, length, name, cap, cap_max, cost):
         """
         Importing a power line with PyPSA structure.
         """
         self.network.add(
             "Line",
-            name[0] + " to " + name[1] + " " + row["Type"],
+            name[0] + " to " + name[1] + " " + type,
             bus0="electricity bus " + name[2],
             bus1="electricity bus " + name[3],
             s_nom=cap,
@@ -93,10 +105,24 @@ class ElectricalGrid:
             s_nom_max=cap_max,
             x=self.X,
             r=self.R,
-            length=row["Longueur (km)"],
-            capital_cost=(self.COST_FIX + cost) * row["Longueur (km)"] * self.ISLAND_FACTOR,
+            length=length,
+            capital_cost=(self.COST_FIX + cost) * length * self.ISLAND_FACTOR,
             env_f=self.ENV_F
         )
+
+    def import_lines_aviation(self):
+        """
+        Import new lines for the new substation to deal with additional demand for alternative fuels for the aviation sector
+        """
+        length = functions.calculate_distance([self.network.buses.y['electricity bus Roland Garros airport'], self.network.buses.x['electricity bus Roland Garros airport']],
+                                     [self.network.buses.y['electricity bus Ste Marie'], self.network.buses.x['electricity bus Ste Marie']]) / 1000
+        self.importing_line('Aerien', length, ['Roland Garros airport', 'Ste Marie', 'Roland Garros airport', 'Ste Marie'], 0, 1000, self.COST_COND_4)
+        for i in self.network.lines.index:
+            if 'Ste Marie' in i and 'Roland Garros airport' not in i:
+                self.importing_line('Aerien', self.network.lines.length[i] + length,
+                                    ['Roland Garros airport', str(self.network.lines.bus0[i][16:]), 'Roland Garros airport', str(self.network.lines.bus0[i][16:])], 0,
+                                    1000, self.COST_COND_4)
+
 
     def import_line_model(self, n, model, capa, cost):
         def line_sum_state(m, k):
@@ -366,9 +392,9 @@ class AdditionalStorages:
         self.dataStorage = self.network.data["storage"].loc[self.network.data["storage"]["technology"] == "electrical"]
 
         if self.dataStorage["place"].iloc[0] == "all":
-            self.places = self.network.data["postes"].index
+            self.places = pd.Index([s[16:] for s in self.network.buses.index[self.network.buses.index.str.contains("electricity bus")]])
         else:
-            self.places = self.dataStorage["place"]
+            self.places = pd.Index(self.dataStorage["place"][0].split(","))
 
     def import_storages(self):
         """
