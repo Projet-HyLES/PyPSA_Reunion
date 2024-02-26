@@ -196,7 +196,7 @@ class Wind:
 
         mc_my_turbine = ModelChain(self.my_turbine).run_model(weather)
         self.my_turbine.power_output = mc_my_turbine.power_output
-        poweroff = self.my_turbine.power_output * tot / self.capa
+        poweroff = self.my_turbine.power_output * tot / self.capa  # product with the number of turbines
 
         if ext:
             current_data = pd.read_csv(
@@ -267,6 +267,35 @@ class Wind:
                             water_f=self.water_f,
                             water_v=self.water_v,
                             )
+
+    def import_wind_offshore_ext(self, network, v, t, ps):
+        weather = pd.DataFrame(columns=['variable_name', 'pressure', 'temperature', 'wind_speed', 'roughness_length'])
+        weather['variable_name'] = network.horizon
+        weather['pressure'] = 101325
+        weather['temperature'] = np.array(t.tolist()) + 273.15
+        weather['wind_speed'] = v.tolist()
+        weather['roughness_length'] = 0.15
+        weather.columns = pd.MultiIndex.from_tuples([(col, 10) for col in weather.columns])
+
+        mc_my_turbine = ModelChain(self.my_turbine).run_model(weather)
+        self.my_turbine.power_output = mc_my_turbine.power_output
+        poweroff = self.my_turbine.power_output / 9.5
+
+        network.add("Generator",  # PyPSA component
+                    ps + " " + self.filiere,  # Name of the element
+                    bus="electricity bus " + ps,
+                    carrier=self.carrier,  # Name of the carrier of the technology
+                    p_nom_extendable=True,
+                    p_min_pu=(poweroff / 1000000).tolist(),  # Minimum output
+                    p_max_pu=(poweroff / 1000000).tolist(),  # Maximum output
+                    marginal_cost=functions.calculate_marginal_costs(self.fuelcost,
+                                                                     self.variableom,
+                                                                     self.efficiency),
+                    capital_cost=functions.calculate_capital_costs(self.discountrate, self.lifetime,
+                                                                   self.fixedOM_p,
+                                                                   self.fixedOM_t, self.CAPEX, 1),
+                    )
+
 
 
 class BaseProduction:
