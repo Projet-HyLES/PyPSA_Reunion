@@ -182,7 +182,7 @@ class Wind:
         # We make the model take as much electricity from wind sources as possible
         poweron = pd.DataFrame(index=network.horizon, columns=["Power"])
         for i in network.horizon:
-            poweron["Power"].loc[i] = functions.prod_vestas(self.type, self.v_min, self.v_max, self.v_nom, self.rho,
+            poweron.loc[i, "Power"] = functions.prod_vestas(self.type, self.v_min, self.v_max, self.v_nom, self.rho,
                                                             self.diam,
                                                             v.loc[i], self.capa, tot / self.capa)
 
