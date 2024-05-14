@@ -145,7 +145,7 @@ def formate_loads(i, type):
     :param type: str, week or weekend
     :return: Dataframe with week and weekend type data of residential and tertiary consumptions
     """
-    conso = pd.read_csv("conso/" + i + ".csv", sep=',', encoding='latin-1')
+    conso = pd.read_csv("/home/afrancoi/PyPSA/Codes/HyLES/Data/Consumption/" + i + ".csv", sep=',', encoding='latin-1')
 
     conso_tertiaire = conso.loc[conso["Type"] == type].loc[conso["Secteur"] == "Tertiaire"].copy()
     conso_tertiaire = conso_tertiaire.reset_index()
@@ -284,7 +284,7 @@ def calculate_capital_costs(d_r, lifetime, fixed_OM_p, fixed_OM_t, CAPEX, Nyears
     :param Nyears: years simulated
     :return: float for marginal and capital costs
     """
-    annuity = (1 - (1 + d_r) ** (- lifetime)) / d_r
+    annuity = d_r / (1 - (1 + d_r) ** (- lifetime))
     return (annuity + fixed_OM_p/100) * CAPEX * Nyears + fixed_OM_t * Nyears
 
 
