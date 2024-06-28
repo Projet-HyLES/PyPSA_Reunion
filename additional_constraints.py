@@ -17,10 +17,14 @@ def impact_constraint(n, m, keyword):
             v += sum(m.variables['Generator-p'][t, i] for t in list(n.snapshots)) * n.generators[keyword + "_v"][i]
             c += n.generators['p_nom'][i] * n.generators[keyword + "_f"][i]
     for i in n.links.index.tolist():
-        v += m.variables['Link-p_nom'][i] * n.links[keyword + "_f"][i] + sum(
-            m.variables['Link-p'][t, i] for t in list(n.snapshots)) * n.links[keyword + "_v"][i]
+        if n.links['p_nom_extendable'][i]:
+            v += m.variables['Link-p_nom'][i] * n.links[keyword + "_f"][i] + sum(
+                m.variables['Link-p'][t, i] for t in list(n.snapshots)) * n.links[keyword + "_v"][i]
+        else:
+            v += sum(m.variables['Link-p'][t, i] for t in list(n.snapshots)) * n.links[keyword + "_v"][i]
+            c += n.links['p_nom'][i] * n.links[keyword + "_f"][i]
     for i in n.stores.index.tolist():
-        if hasattr(m.variables, 'Store-e_nom'):
+        if n.stores['e_nom_extendable'][i]:
             v += m.variables['Store-e_nom'][i] * n.stores[keyword + "_f"][i] + sum(
                 m.variables['Store-p'][t, i] for t in list(n.snapshots)) * n.stores[keyword + "_v"][i]
         else:
