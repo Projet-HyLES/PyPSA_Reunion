@@ -1,9 +1,5 @@
 import numpy as np
 import pandas as pd
-import datetime
-import os.path
-import holidays
-import pytz
 import math
 from shapely.geometry import LineString
 from shapely.ops import transform
@@ -13,7 +9,7 @@ from pyproj import CRS
 
 def extraction_localisation(data, column):
     """
-    Extraction of the longitude and the latitude from a str of the type(latitude,longitude)
+    Extraction of the longitude and the latitude from a str of the type "latitude,longitude"
     :param data: dataframe where the initial str is and where the final longitude and latitude will be stored
     :param column: column of the dataframe where the str is stored
     :return: the initial dataframe with two additional columns, for latitude and longitude
@@ -33,8 +29,8 @@ def import_from_excel_folder(path, year):
     """
     Import of the required data from different files
     :param year: simulation year
-    :param path:
-    :return: dict with all the data compilated
+    :param path: path for the file where data are stored
+    :return: dict with all the data compiled
     """
     print("INFO: importing energy network data...")
     data = pd.ExcelFile(path+"/data"+str(year)+".xlsx")
@@ -105,27 +101,27 @@ def formate_lines(file):
 
 def calculate_marginal_costs(fuel_cost, variable_OM, efficiency):
     """
-    The function calculates the equivalent marginal and capital costs
-    Formule taken from https://github.com/PyPSA/pypsa-eur/blob/master/scripts/add_electricity.py
-    :param fuel_cost:
-    :param variable_OM:
-    :param efficiency:
-    :return: float for marginal and capital costs
+    Function to calculate the equivalent marginal costs
+    From https://github.com/PyPSA/pypsa-eur/blob/master/scripts/add_electricity.py
+    :param fuel_cost: fuel costs (€/MWh)
+    :param variable_OM: variable operation and maintenance costs (€/MWh)
+    :param efficiency: efficiency of the technology
+    :return: float for marginal costs
     """
     return fuel_cost / efficiency + variable_OM
 
 
 def calculate_capital_costs(d_r, lifetime, fixed_OM_p, fixed_OM_t, CAPEX, Nyears):
     """
-    The function calculates the equivalent marginal and capital costs
-    Formule taken from https://github.com/PyPSA/pypsa-eur/blob/master/scripts/add_electricity.py
+    Function to calculate the equivalent capital costs
+    From https://github.com/PyPSA/pypsa-eur/blob/master/scripts/add_electricity.py
     :param d_r: discount rate
     :param lifetime: lifetime (years)
     :param fixed_OM_t: fixed operation and maintenance costs (€/year)
     :param fixed_OM_p: fixed operation and maintenance costs (%/year)
     :param CAPEX: investments (€/MW)
-    :param Nyears: years simulated
-    :return: float for marginal and capital costs
+    :param Nyears: number of years simulated
+    :return: float for capital costs
     """
     annuity = d_r / (1 - (1 + d_r) ** (- lifetime))
     return (annuity + fixed_OM_p/100) * CAPEX * Nyears + fixed_OM_t * Nyears
@@ -133,17 +129,17 @@ def calculate_capital_costs(d_r, lifetime, fixed_OM_p, fixed_OM_t, CAPEX, Nyears
 
 def prod_vestas(type, umin, umax, unom, rho, diam, u, capa, x):
     """
-    Calculate the energy produced by a wind turbine at a time t.
+    Function to calculate the energy produced by a Vestas wind turbine at a time t.
     :param type: model used (offshore or onshore)
     :param umin: minimal wind speed
     :param umax: maximal wind speed
     :param unom: nominal wind speed
     :param rho: air density
-    :param diam: rotor swept area exposed to the wind
+    :param diam: rotor swept area exposed
     :param u: wind speed
     :param capa: capacity of the wind turbine
     :param x: number of turbines
-    :return: the energy produced
+    :return: energy produced
     """
     if (u <= umin) or (u >= umax):
         return 0
@@ -190,8 +186,8 @@ def create_weighted_rainfall(prec_file, power_file, ps):
         long_ps.loc[i, 'coord ref'] = long_mf.iloc[long_mf.sub(long_ps.loc[i, 0]).abs().idxmin()].values[0][0]
 
     for j in power_file.index:
-        lat = ps["Lat"].loc[ps.index == j]  # latitude du poste source
-        long = ps["Long"].loc[ps.index == j]  # longitude du poste source
+        lat = ps["Lat"].loc[ps.index == j]  # latitude of the substation
+        long = ps["Long"].loc[ps.index == j]  # longitude of the substation
         prec_ok = prec_file[(prec_file['lon'] == long_ps["coord ref"].loc[long_ps[0] == long.values[0]].values[0]) & (
                     prec_file['lat'] == lat_ps["coord ref"].loc[lat_ps[0] == lat.values[0]].values[0])]['pr_corr']
         prec_ok = prec_ok.values[0]
@@ -201,6 +197,9 @@ def create_weighted_rainfall(prec_file, power_file, ps):
 
 
 def calculate_distance(pointA, pointB):
+    """
+    Function to calculate the distance between two points pointA and pointB
+    """
     ligne = LineString([pointA, pointB])
     crs_4326 = CRS("EPSG:4326")
     crs_proj = CRS("EPSG:3727")
