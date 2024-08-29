@@ -14,12 +14,20 @@ if __name__ == '__main__':
     print(f"Start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}.")
 
     # Initialization of the simulation
-    year = 2050
-    snapshots = pd.date_range(f"{year}-01-01 00:00", f"{year}-12-31 23:00", freq="H")
+    multiyear = False  # set to True if multiple years are being run
+    if multiyear:
+        year1 = 2015
+        year2 = 2019
+        snapshots = pd.date_range(f"{year1}-01-01 00:00", f"{year2}-12-31 23:00", freq="h")
+    else:
+        year = 2050
+        snapshots = pd.date_range(f"{year}-01-01 00:00", f"{year}-12-31 23:00", freq="h")
+
+    snapshots = snapshots[(snapshots.month != 2) | (snapshots.day != 29)]  # 29th of february is removed for simulations
     current_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(current_dir, 'Data')
 
-    h2_scenario = 'stock'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
+    h2_scenario = 'None'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
     h2_installations = None
     h2_bus_scenario = None
     nb_station = None
@@ -27,16 +35,21 @@ if __name__ == '__main__':
     stations = {}
     if "buses" in h2_scenario:
         h2_bus_scenario = "freqA"  # freqA, freqB
-        nb_station = 3  # 2 ou 3
-        nb_disp = 2  # 1, 2 ou 3 par station
+        nb_station = 2  # 2 ou 3
+        nb_disp = 3  # 1, 2 ou 3 par station
     extension_production = False  # if True, the capacity of some generators is extendable
+
+    aircraft = False  # set to True to consider aircraft fuels
+    marine = False  # set to True to consider marine fuels
 
     # Import of the network
     tic = time.time()
     network = EnergyNetwork(snapshots)
     sector_base, sector_new = network.import_network(data_dir, h2=h2_scenario, h2bus=h2_bus_scenario,
                                                      h2station=nb_station, h2disp=nb_disp, h2size=h2_installations,
-                                                     ext=extension_production)
+                                                     ext=extension_production,
+                                                     aircraft=aircraft,
+                                                     marine=marine)
     toc = time.time()
     print("INFO: Importing data took {} seconds.".format(toc - tic))
 
@@ -45,7 +58,7 @@ if __name__ == '__main__':
     network.plot_network('initial', False, False, False)
 
     # Optimization of the system
-    obj = 'multi'  # cost, env, multi
+    obj = 'cost'  # cost, env, multi
     limit_water = None
 
     solver_options = {'Method': 2, 'DegenMoves': 0, 'BarHomogeneous': 1}
@@ -60,7 +73,7 @@ if __name__ == '__main__':
         plt.xlabel('Costs (€)')
         plt.ylabel('Environmental impact (?)')
         fig.tight_layout()
-        fig.savefig("pareto_front.png", bbox_inches="tight", dpi=300)
+        fig.savefig("pareto_front.pdf", bbox_inches="tight", dpi=300)
 
     else:
         cost_impact, env_impact, water_impact = network.optimization(solver="gurobi", solver_options=solver_options,
