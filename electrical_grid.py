@@ -221,7 +221,7 @@ class ExistingStorages:
 
         self.network.add(
             "Link",
-            "from existing battery link " + i,
+            "to existing battery link " + i,
             bus0="electricity bus " + i,
             bus1="existing battery bus " + i,
             p_nom=self.power[i],
@@ -231,7 +231,7 @@ class ExistingStorages:
 
         self.network.add(
             "Link",
-            "to existing battery link " + i,
+            "from existing battery link " + i,
             bus0="existing battery bus " + i,
             bus1="electricity bus " + i,
             p_nom=self.power[i],
@@ -268,12 +268,9 @@ class ExistingStorages:
             self.fuelcost[i], self.variableom[i], self.efficiencydispatch[i]
         )
 
-    def constraints_existing_battery(self, n, model, horizon):
+    def constraints_existing_battery(self, model, horizon):
         """
         Add constraints for the existing batteries to the model.
-
-        :param n: The number of snapshots.
-        :type n: int
 
         :param model: The optimization model.
         :type model: <type of model>
@@ -281,15 +278,14 @@ class ExistingStorages:
         :param horizon: The horizon for which the model is built.
         :type horizon: pandas.DatetimeIndex
         """
-        # TODO conserver le n en paramètre (Pyomo)
         snap = pd.Series(horizon).to_xarray()
         snap = snap.rename({"index": "snapshots"})
 
         for place in self.places:
             if self.kind[place] == "power":
                 self.add_power_constraints(model, place, snap)
-            # elif self.kind[place] == "energy":
-            #     self.add_energy_constraints(model, place)
+            elif self.kind[place] == "energy":
+                self.add_energy_constraints(model, place)
 
     def add_power_constraints(self, model, place, snap):
         """
@@ -325,28 +321,27 @@ class ExistingStorages:
         model.add_constraints(soc_batterie_1, coords=(snap,), name="soc_batterie_1_" + str(place))
         model.add_constraints(soc_batterie_2, coords=(snap,), name="soc_batterie_2_" + str(place))
 
-    # def add_energy_constraints(self, model, place):
-    #     """
-    #     Base constraint for Store component as StorageUnit component.
-    #
-    #     :param model: The optimization model.
-    #     :type model: <type of model>
-    #
-    #     :param place: The place where the battery is located.
-    #     :type place: int
-    #     """
-    #     model.add_constraints(
-    #         model.variables["Store-e_nom"]["existing battery " + place] -
-    #         model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
-    #         name="store_fix_1_" + str(place)
-    #     )
-    #
-    #     model.add_constraints(
-    #         model.variables["Store-e_nom"]["existing battery " + place] -
-    #         model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
-    #         name="store_fix_2_" + str(place)
-    #     )
-    # No need as power and capacity are fixed and non extendable
+    def add_energy_constraints(self, model, place):
+        """
+        Base constraint for Store component as StorageUnit component.
+
+        :param model: The optimization model.
+        :type model: <type of model>
+
+        :param place: The place where the battery is located.
+        :type place: int
+        """
+        model.add_constraints(
+            model.variables["Store-e_nom"]["existing battery " + place] -
+            model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
+            name="store_fix_1_" + str(place)
+        )
+
+        model.add_constraints(
+            model.variables["Store-e_nom"]["existing battery " + place] -
+            model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
+            name="store_fix_2_" + str(place)
+        )
 
 
 class AdditionalStorages:
@@ -390,7 +385,7 @@ class AdditionalStorages:
 
         self.network.madd(
             "Link",
-            "from additional battery link " + self.places,
+            "to additional battery link " + self.places,
             bus0=electricity_bus,
             bus1=additional_battery_bus,
             p_nom=0,
@@ -405,7 +400,7 @@ class AdditionalStorages:
 
         self.network.madd(
             "Link",
-            "to additional battery link " + self.places,
+            "from additional battery link " + self.places,
             bus1=electricity_bus,
             bus0=additional_battery_bus,
             p_nom=0,
