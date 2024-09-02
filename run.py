@@ -39,8 +39,13 @@ if __name__ == '__main__':
         nb_disp = 3  # 1, 2 ou 3 par station
     extension_production = False  # if True, the capacity of some generators is extendable
 
-    aircraft = False  # set to True to consider aircraft fuels
-    marine = False  # set to True to consider marine fuels
+    selfsufficiency = False  # if True, aircraft fuels will be optimised
+    if selfsufficiency:
+        aircraft = True
+        marine = True
+    else:
+        aircraft = False  # set to True to consider aircraft fuels
+        marine = False  # set to True to consider marine fuels
 
     # Import of the network
     tic = time.time()
@@ -49,6 +54,7 @@ if __name__ == '__main__':
                                                      h2=h2_scenario, h2bus=h2_bus_scenario,
                                                      h2station=nb_station, h2disp=nb_disp,
                                                      ext=extension_production,
+                                                     selfsufficiency=selfsufficiency,
                                                      aircraft=aircraft,
                                                      marine=marine,
                                                      multiyear=multiyear,
