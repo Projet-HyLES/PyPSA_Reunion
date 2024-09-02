@@ -30,13 +30,11 @@ class EnergyNetwork(pypsa.Network):
         This constructor initializes the instance by calling the constructor of the base class `pypsa.Network`.
         """
 
-        if snapshots.size != 8760:
-            raise ValueError('ERROR: a period of one year must be simulated.')
-
         super().__init__(override_component_attrs=self.get_component_attrs())
 
         self.cons = None
         self.set_snapshots(snapshots)
+        self.year = self.snapshots.year.unique().values[0]
         self.scenario = None
         self.data = None
         self.data_dir = None
@@ -76,7 +74,7 @@ class EnergyNetwork(pypsa.Network):
         return component_attrs
 
 
-    def import_network(self, data_dir, h2, h2bus, h2station, h2disp, h2size, ext):
+    def import_network(self, data_dir, h2, h2bus, h2station, h2disp, ext, selfsufficiency, aircraft, marine, multiyear, yeardata):
         """
         Import and definition of the energy network
 
@@ -85,12 +83,18 @@ class EnergyNetwork(pypsa.Network):
         :param h2bus: str, hydrogen bus scenario simulated
         :param h2station: int, number of stations for the hydrogen bus scenario simulated
         :param h2disp: int, number of dispensers for the hydrogen bus scenario simulated
-        :param h2size: TODO fonctionnalité pas encore utilisée
         :param ext: bool, switch to allow the capacity of some generators to be extendable
+        :param selfsufficiency: bool, switch to optimize aircraft fuels
+        :param aircraft: bool, switch to consider alternative fuels for the aviation sector
+        :param marine: bool, switch to consider alternative fuels for the maritime sector
+        :param multiyear: bool, switch to run multiple years
+        :param yeardata: int, year to consider data for simulations with multiple years
         :return: tuple of already used and new electricity production technologies
         """
         # Store processed data in instance variables
-        self.data, lines = functions.import_from_excel_folder(data_dir, self.snapshots.year.unique()[0])
+        if multiyear:
+            self.year = yeardata
+        self.data, lines = functions.import_from_excel_folder(data_dir, self.year)
         self.data_dir = data_dir
         self.eleclines = lines
 
@@ -110,13 +114,16 @@ class EnergyNetwork(pypsa.Network):
 
         self.horizon = self.snapshots.tolist()
 
-        self.import_meteo_data()
+        self.import_meteo_data(multiyear)
         self.import_carriers()
 
         # Import buses and lines into the electrical grid
         electrical_grid = ElectricalGrid(self)
         electrical_grid.import_buses()
         electrical_grid.import_lines()
+        if aircraft:
+            electrical_grid.import_bus_aviation()
+            electrical_grid.import_lines_aviation()
 
         # Import existing storages
         existing_storages = ExistingStorages(self)
@@ -152,12 +159,58 @@ class EnergyNetwork(pypsa.Network):
         additional_storages = AdditionalStorages(self)
         additional_storages.import_storages()
 
+        if aircraft:
+            ratio = None
+            if selfsufficiency:
+                ratio = pd.read_excel('/home/afrancoi/Downloads/Ratio aviation.xlsx', header=0)
+                ratio['Month'] = pd.to_datetime(str(self.year) + '-' + ratio['Month'].astype(str), format='%Y-%m')
+                ratio = ratio.set_index('Month')
+                ratio = ratio.reindex(self.horizon, method='ffill')
+            electrical_demand.import_aviation_elec_demand(rt=ratio)
+
+            # Aircraft fuels produced with additional power plant :
+            self.add("Generator",
+                             "generator joker Roland Garros airport",
+                             bus="electricity bus Roland Garros airport",
+                             carrier="joker",
+                             p_nom_extendable=True,
+                             # p_nom_max=10000,
+                             marginal_cost=1000,
+                             capital_cost=1e10,
+                             )
+
+            # Aircraft fuels produced with additional power plants at each substation :
+            # for i in self.buses.index:
+            #     if "electricity bus" in i:
+            #         self.add("Generator",
+            #                  "generator joker " + i[16:],
+            #                  bus=i,
+            #                  carrier="joker",
+            #                  p_nom_extendable=True,
+            #                  p_nom_max=100,
+            #                  marginal_cost=1000,
+            #                  capital_cost=1e10,
+            #                  )
+
+            # Aircraft fuels produced with offshore wind, installed capacity optimised :
+            # Wind(self.data["generator_data"], "offshore").import_wind_offshore_ext(self, self.data["wind"]['Digue'],
+            #                                                                        self.data["meteo_t"]['Digue'],
+            #                                                                        'Roland Garros airport')
+
+        if marine:
+            electrical_demand.import_maritime_elec_demand()
+
         # Import hydrogen technologies according to the scenario passed
-        h2_chain_main = H2Chain(self.data, self.data["postes"].index)
+        postes = self.data["postes"].index
+        postes_removed = ['Takamaka']
+        # postes_removed.extend(['Dattiers', 'Moufia', 'Digue', 'St Pierre', 'St Paul', 'Langevin', 'Le Bras de la Plaine'])
+        postes = postes.drop(postes_removed)
+
+        h2_chain_main = H2Chain(self.data, postes)
         if h2 == "stock":  # Electrolyser, storage lp and fuel cell at every substation
-            h2_chain_main.import_electrolyser(self, h2size)
-            h2_chain_main.import_h2_storage_lp(self, h2size)
-            h2_chain_main.import_fc(self, h2size)
+            h2_chain_main.import_electrolyser(self)
+            h2_chain_main.import_h2_storage_lp(self)
+            h2_chain_main.import_fc(self)
         elif h2 != 'None':  # Refueling stations on the substations concerned
             h2_places_buses = pd.Series([], dtype=str)
             h2_places_train = pd.Series([], dtype=str)
@@ -173,13 +226,22 @@ class EnergyNetwork(pypsa.Network):
             self.h2_places = pd.concat([h2_places_buses, h2_places_train]).drop_duplicates().reset_index(drop=True)  # stations are pooled
             h2_chain = H2Chain(self.data, self.h2_places)
             if "stock" in h2:  # Electrolyser, storage lp and fuel cell at every substation
-                h2_chain_main.import_electrolyser(self, h2size)
-                h2_chain_main.import_h2_storage_lp(self, h2size)
-                h2_chain_main.import_fc(self, h2size)
+                h2_chain_main.import_electrolyser(self)
+                h2_chain_main.import_h2_storage_lp(self)
+                h2_chain_main.import_fc(self)
             else:  # Electrolyser only at refueling station
-                h2_chain.import_electrolyser(self, h2size)
+                h2_chain.import_electrolyser(self)
             h2_chain.import_compressor(self)
             h2_chain.import_h2_storage_hp(self)
+            h2_chain.import_expander(self)
+
+        if aircraft:
+            h2_demand = H2Demand("", self.data_dir)
+            h2_demand.import_aviation_hydrogen_demand(self, rt=ratio)
+
+        if marine:
+            h2_demand = H2Demand("", self.data_dir)
+            h2_demand.import_maritime_hydrogen_demand(self)
 
         return (
             ast.literal_eval(self.data['network'].at['generation base', 'List 1']),
@@ -187,43 +249,59 @@ class EnergyNetwork(pypsa.Network):
         )
 
 
-    def import_meteo_data(self):
+    def import_meteo_data(self, multiyear):
         """
         Import meteorological data
 
-        :param data: Data containing meteorological information
-        :param horizon: List of time horizon
+        :param multiyear: bool, switch to run multiple years
         """
-        year = self.snapshots.year.unique().values[0]
 
-        self.data['meteo_r'] = pd.read_csv(
-            f"{self.data_dir}/rayonnement_tmy_{year}.csv",
-            sep=',',
-            encoding='latin-1',
-            index_col=0
-        )
+        if multiyear:
+            self.data['meteo_r'] = pd.read_csv(f"{self.data_dir}/rayonnement_stations_corrige.csv",
+                                               sep=',', encoding='latin-1', index_col=0, parse_dates=True)
+            self.data['meteo_r'] = self.data['meteo_r'][(self.data['meteo_r'].index.year >= self.snapshots.year.unique().values[0]) & (self.data['meteo_r'].index.year <= self.snapshots.year.unique().values[-1])]
+            self.data['meteo_r'] = self.data['meteo_r'][(self.data['meteo_r'].index.month != 2) | (self.data['meteo_r'].index.day != 29)]
+
+            self.data['meteo_t'] = pd.read_csv(f"{self.data_dir}/temperature_stations_corrige.csv",
+                                               sep=',', encoding='latin-1', index_col=0, parse_dates=True)
+            self.data['meteo_t'] = self.data['meteo_t'][(self.data['meteo_t'].index.year >= self.snapshots.year.unique().values[0]) & (self.data['meteo_t'].index.year <= self.snapshots.year.unique().values[-1])]
+            self.data['meteo_t'] = self.data['meteo_t'][(self.data['meteo_t'].index.month != 2) | (self.data['meteo_t'].index.day != 29)]
+
+            self.data['wind'] = pd.read_csv(f"{self.data_dir}/vent_stations_corrige.csv",
+                                            sep=',', encoding='latin-1', index_col=0, parse_dates=True)
+            self.data['wind'] = self.data['wind'][(self.data['wind'].index.year >= self.snapshots.year.unique().values[0]) & (self.data['wind'].index.year <= self.snapshots.year.unique().values[-1])]
+            self.data['wind'] = self.data['wind'][(self.data['wind'].index.month != 2) | (self.data['wind'].index.day != 29)]
+
+            self.data['rain'] = pd.read_csv(
+                f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
+            )
+
+
+        else:
+            self.data['meteo_r'] = pd.read_csv(f"{self.data_dir}/rayonnement_tmy_{str(self.year)}.csv",
+                                               sep=',', encoding='latin-1', index_col=0)
+
+            self.data['meteo_t'] = pd.read_csv(f"{self.data_dir}/BRIO/T_{str(self.year)[-2:]}_{self.climate_scenario}.csv",
+                                               sep=',', encoding='latin-1', index_col=0)
+
+            self.data['wind'] = pd.read_csv(f"{self.data_dir}/vent_construit_AROME.csv",
+                                            encoding='latin-1', index_col=0)
+            self.data['wind'].sort_index(inplace=True)
+
+            self.data['rain'] = pd.read_csv(
+                f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
+            )
+
+
         self.data['meteo_r'].index = self.horizon
-
-        self.data['meteo_t'] = pd.read_csv(
-            f"{self.data_dir}/BRIO/T_{str(year)[-2:]}_{self.climate_scenario}.csv",
-            sep=',',
-            encoding='latin-1',
-            index_col=0
-        )
         self.data['meteo_t'].index = self.horizon
-
-        self.data['wind'] = pd.read_csv(
-            f"{self.data_dir}/data_wind_2019_80m.csv",
-            sep=';',
-            encoding='latin-1',
-            index_col=0
-        )
-        self.data['wind'].sort_index(inplace=True)
         self.data['wind'].index = self.horizon
 
-        self.data['rain'] = pd.read_csv(
-            f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(year)[-2:]}.csv"
-        )
+        # TODO à enlever ?
+        self.data['meteo_t_corrige'] = self.data['meteo_t'].copy()
+        self.data['wind corrige'] = self.data['wind'].copy()
+        self.data['rho corrige'] = self.data['wind'].copy()
+
         if not {'timec', 'lon', 'lat', 'pr_corr'}.issubset(self.data['rain'].columns.values.tolist()):
             raise ValueError('ERROR: rainfall file not formatted.')
         self.data['rain']['timec'] = pd.to_datetime(self.data['rain']['timec'], format='%Y-%m-%d %H:%M:%S')
@@ -250,8 +328,6 @@ class EnergyNetwork(pypsa.Network):
     def import_carriers(self):
         """
         Function to import the different energy carriers involved
-        :param data: table of the carriers with their attributes
-        :return: None
         """
         self.madd("Carrier", self.data["carrier"]["name"].tolist(), color=self.data["carrier"]["color"].tolist())
 
@@ -259,12 +335,9 @@ class EnergyNetwork(pypsa.Network):
     def import_generators(self, ext):
         """
         Function to import the generators of the energy system
-        :param data: big file with all the data
         :param ext: bool, switch to allow the capacity of some generators to be extendable
-        :return: None
         """
-        generators = self.data["generator"].sort_values(
-            by=["Poste source", "Filière"])  # Values are sorted by station and carrier
+        generators = self.data["generator"].sort_values(by=["Poste source", "Filière"])  # Values are sorted by station and carrier
         generators = generators.reset_index()
         total_capa = 0
 
@@ -277,18 +350,17 @@ class EnergyNetwork(pypsa.Network):
                 index + 1, "Filière"] != fil:
                 # We add elements to our model when the last element of the file is reached or the last element of the station/of the technology
 
-                if "PV+stockage" in fil:  # TODO probablement devoir régler ce problème de PV+stockage un jour
+                if "PV+stockage" in fil:
                     total_capa = 0
 
                 elif "PV" in fil:
-                    PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps,
-                                                         ext)
+                    PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps, ext)
 
                 elif fil == "Eolien":
                     Wind(self.data["generator_data"], "onshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
 
                 elif fil == "Eolien offshore":
-                    Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
+                    Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"]["Offshore"], self.data["meteo_t"][ps], ps, ext)
 
                 elif fil == "ETM":
                     ETM(self.data["generator_data"]).import_etm(self, total_capa/1000, ps)
@@ -322,9 +394,9 @@ class EnergyNetwork(pypsa.Network):
             model.variables["Generator-p_nom"].upper = xr.DataArray(
                 self.generators['p_nom_max'][self.get_extendable_i('Generator')].tolist(),
                 coords=(self.get_extendable_i('Generator'),))
-        model.variables["Line-s_nom"].lower = xr.DataArray(
-            self.lines['s_nom_min'][self.get_extendable_i('Line')].tolist(),
-            coords=(self.get_extendable_i('Line'),))
+        # model.variables["Line-s_nom"].lower = xr.DataArray(
+        #     self.lines['s_nom_min'][self.get_extendable_i('Line')].tolist(),
+        #     coords=(self.get_extendable_i('Line'),))
         model.variables["Link-p_nom"].lower = xr.DataArray(
             self.links['p_nom_min'][self.get_extendable_i('Link')].tolist(),
             coords=(self.get_extendable_i('Link'),))
@@ -332,11 +404,39 @@ class EnergyNetwork(pypsa.Network):
             self.stores['e_nom_min'][self.get_extendable_i('Store')].tolist(),
             coords=(self.get_extendable_i('Store'),))
 
+
+        # H2Chain(self.data, pd.Series(['Marquet'])).constraint_prodsup_bus(self, model, self.horizon)
+        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_prodsup_bus(self, model, self.horizon)
+        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_cyclic_soc(self, model, self.horizon, 10)
+        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_minimal_soc(self, model, self.horizon, 1, True, True)
+        # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodsup_bus(self, model, self.horizon)
+        # model.add_constraints(sum(model.variables["Generator-p"][j, 'generator joker Roland Garros airport'] for j in list(self.horizon)) - 8760 * 0.8 * model.variables["Generator-p_nom"]['generator joker Roland Garros airport'] <= 0, name="charge_joker")
+
+
         # Constraints for the definition of the hydrogen chain with hydrogen demand
         if (h2 != "stock") and (h2 != "None"):
             H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
             H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)
-            H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 1)
+            H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 1, False, False)
+
+        # if h2 == "stock":
+        #     postes = self.data["postes"].index
+        #     postes = postes.drop('Takamaka')  # contrainte parc national
+            # postes = postes.drop('Dattiers')
+            # postes = postes.drop('Moufia')
+            # postes = postes.drop('Digue')
+            # postes = postes.drop('St Pierre')
+            # postes = postes.drop('St Paul')
+            # postes = postes.drop('Langevin')
+            # postes = postes.drop('Le Bras de la Plaine')
+            # H2Chain(self.data, pd.Series(postes.to_list())).constraint_prodsup_bus(self, model, self.horizon)
+            # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodlong_bis(self, model, self.horizon)
+            # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodsup_bus(self, model, self.horizon)
+
+        # model.add_constraints(model.variables['Generator-p_nom']['Aviation electricity export'] - model.variables['Generator-p_nom']['Aviation hydrogen export'] <= 0, name='equality_aviation_1')
+        # model.add_constraints(
+        #     model.variables['Generator-p_nom']['Aviation electricity export'] - model.variables['Generator-p_nom'][
+        #         'Aviation hydrogen export'] >= 0, name='equality_aviation_2')
 
         # Constraints for the definition of the existing storages
         ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
@@ -345,41 +445,93 @@ class EnergyNetwork(pypsa.Network):
         AdditionalStorages(self).constraints_additionnal_battery(self, model)
 
         # Constraint for limiting total storages
-        v_store, c_store = cs.limit_storage(self, model)
-        model.add_constraints(v_store <= 2200 - c_store, name="limit_store")
+        # v_store, c_store = cs.limit_storage(self, model)
+        # model.add_constraints(v_store <= 2200 - c_store, name="limit_store")
 
-        # Method for updating optimisation model of electric lines
-        # If used, capital cost of lines must be set to 0
-        # ElectricalGrid(self).import_line_model(self, model, [0, 39, 50, 67, 88], [0, 4200, 7400, 10400, 14900])
 
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies
         hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
         hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})
         BaseProduction(self.data["generator_data"], "Hydraulique").constraint_disp(self, model, self.snapshots, hydrau_xa, ext)
         BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots, hydrau, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], hydrau, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2016], hydrau, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2017], hydrau, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2018], hydrau, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2019], hydrau, ext, spec=None)
 
         bioenergie = self.generators[self.generators.index.str.contains("Bioénergie")].index.to_list()
         bioenergie_xa = pd.Series(bioenergie).to_xarray().rename({'index': 'bioenergie'})
         BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots, bioenergie_xa, ext)
+        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[self.snapshots.year==2015], bioenergie_xa, ext)
+        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
+        #     self.snapshots.year == 2016], bioenergie_xa, ext)
+        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
+        #     self.snapshots.year == 2017], bioenergie_xa, ext)
+        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
+        #     self.snapshots.year == 2018], bioenergie_xa, ext)
+        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
+        #     self.snapshots.year == 2019], bioenergie_xa, ext)
 
         bioethanol = self.generators[self.generators.index.str.contains("TAC bioéthanol")].index.to_list()
         bioethanol_xa = pd.Series(bioethanol).to_xarray().rename({'index': 'bioethanol'})
-        BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots,
-                                                                                      bioethanol_xa, ext)
+        BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots, bioethanol_xa, ext)
         BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots, bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2016], bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2017], bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2018], bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2019], bioethanol, ext, spec=None)
 
         biomasse = self.generators[self.generators.index.str.contains("Biomasse")].index.to_list()
         bagasse = self.generators[self.generators.index.str.contains("Bagasse")].index.to_list()
-        BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots, bagasse, ext, spec="min")
-        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse + bioenergie, ext, spec="max")
+        bioimport = self.generators[self.generators.index.str.contains("import")].index.to_list()
+        BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots, bagasse, ext, spec=None)  # min
+        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], bagasse, ext, spec=None)  # min
+        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2016], bagasse, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2017], bagasse, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2018], bagasse, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2019], bagasse, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "Biomasse import").constraint_min_max(self, model, self.snapshots, bioimport, ext, spec="min")
+        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse, ext, spec="max")
+        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], biomasse + bagasse, ext, spec="max")
+        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2016], biomasse + bagasse, ext, spec="max")
+        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2017], biomasse + bagasse, ext, spec="max")
+        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2018], biomasse + bagasse, ext, spec="max")
+        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
+        #     self.snapshots.year == 2019], biomasse + bagasse, ext, spec="max")
 
         for i in sec_new:
             data_list = self.generators.index.str.contains(i)
             if data_list.any() and i != "ETM":
                 index_list = self.generators[data_list].index.to_list()
                 index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
-                BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
+                # BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
                 BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots, index_list, False, spec=None)
+                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], index_list, False, spec=None)
+                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
+                #     self.snapshots.year == 2016], index_list, False, spec=None)
+                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
+                #     self.snapshots.year == 2017], index_list, False, spec=None)
+                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
+                #     self.snapshots.year == 2018], index_list, False, spec=None)
+                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
+                #     self.snapshots.year == 2019], index_list, False, spec=None)
+
 
         if ext:
             # Only one potential for geothermal energy and OTEC: all or nothing (/!\ MILP /!\)
@@ -400,7 +552,7 @@ class EnergyNetwork(pypsa.Network):
             model.add_constraints(model.variables["Generator-p_nom"][etm[1]].to_linexpr() - model.variables['x_etm1'] * self.generators['p_nom_max'][etm[1]] >= 0, name="p_etm_12")
 
 
-        # Constraints for water consumption
+        # Constraints for water consumption # TODO contrainte spatiale ?
         # v_water, c_water = cs.impact_constraint(self, model, 'water')
         # model.add_constraints(v_water <= water - c_water, name="water_impact")
 
@@ -450,15 +602,15 @@ class EnergyNetwork(pypsa.Network):
             print('Network successfully exported.')
 
             # Start of the multi-objective optimisation with epsilon-constraint method
-            step = (env_list[0] - min_env) / 3  # Number of iterations (+1) arbitrarily set
+            step = (env_list[0] - min_env) / 4  # Number of iterations (+1) arbitrarily set
             model.objective = obj_stock  # Going back to economic optimum
             for i in list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1]:
                 # Number of the iteration
                 a = list(range(floor(env_list[0]), floor(min_env), -floor(step)))[1:-1].index(i) + 1
                 # Constraints for environmental impact within multi-objective optimisation
                 v_env, c_env = cs.impact_constraint(self, model, 'env')
-                model.add_constraints(v_env <= i - c_env, name="env_impact")  # TODO try augmented epsilon-constraint method later
-                print('PERFORMING OPTIMISATION {} / 2'.format(a))
+                model.add_constraints(v_env <= i - c_env, name="env_impact")
+                print('PERFORMING OPTIMISATION {} / 3'.format(a))
                 self.optimize.solve_model(solver_name=solver, **solver_options)
                 if not self.model.status == 'ok':
                     raise ValueError('ERROR: optimization is infeasible, results cannot be plotted.')
