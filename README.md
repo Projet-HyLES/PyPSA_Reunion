@@ -1,6 +1,5 @@
 # Requirements 
 - PyPSA (`conda install -c conda-forge pypsa`)
-- holidays (`conda install -c conda-forge holidays`)
 - gurobi and gurobipy (`conda install -c gurobi gurobi` and `pip install gurobipy`) + full license
 - openpyxl (`conda install -c anaconda onpenpyxl`)
 
