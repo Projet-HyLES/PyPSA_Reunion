@@ -78,9 +78,9 @@ class ElectricalDemand:
                              bus="electricity bus Roland Garros airport",  # Bus to which the demand is attached
                              carrier='aircraft',
                              p_nom_extendable=True,
-                             p_min_pu=-rt['Ratio'] * 0.09897,
+                             p_min_pu=-rt['Ratio'] * 0.09897,  # Factor determined with the distribution of hydrogen demand
                              p_max_pu=-rt['Ratio'] * 0.09897,
-                             marginal_cost=1000
+                             marginal_cost=1000  # Random marginal cost
                              )
 
     def import_maritime_elec_demand(self):
