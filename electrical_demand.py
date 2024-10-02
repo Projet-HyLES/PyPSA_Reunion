@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import numpy as np
 
 # Definition of the electrical demand : base, electric vehicles, buses
 
