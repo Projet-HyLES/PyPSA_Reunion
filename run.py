@@ -3,6 +3,9 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from energy_network import EnergyNetwork
+import matplotlib
+
+matplotlib.use('TkAgg')  # can be reomved if matplotlib figures are plotted automatically
 
 if __name__ == '__main__':
     """
@@ -14,11 +17,11 @@ if __name__ == '__main__':
     print(f"Start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}.")
 
     # Initialization of the simulation
-    multiyear = True  # set to True if multiple years are being run
+    multiyear = False  # set to True if multiple years are being run
     if multiyear:
-        year1 = 2015
-        year2 = 2019
-        year_data = 2050
+        year1 = 2005
+        year2 = 2009
+        year_data = 2050  # technologies data are only provided for 2030 or 2050
         snapshots = pd.date_range(f"{year1}-01-01 00:00", f"{year2}-12-31 23:00", freq="h")
     else:
         year = 2050
@@ -30,16 +33,16 @@ if __name__ == '__main__':
     data_dir = os.path.join(current_dir, 'Data')
 
     h2_scenario = 'None'  # ['stock', 'buses', 'stock+buses', 'train', 'train+buses', 'stock+buses+train', 'None']
-    h2_bus_scenario = None
-    nb_station = None
-    nb_disp = None
+    h2_bus_scenario = None  # bus frequency scenario (influences hydrogen demand)
+    nb_station = None  # number of hydrogen refueling stations for buses scenario
+    nb_disp = None  # number of dispensers per refueling station for buses scenario
     if "buses" in h2_scenario:
         h2_bus_scenario = "freqA"  # freqA, freqB
         nb_station = 2  # 2 ou 3
         nb_disp = 3  # 1, 2 ou 3 par station
     extension_production = False  # if True, the capacity of some generators is extendable
 
-    selfsufficiency = False  # if True, aircraft fuels will be optimised
+    selfsufficiency = False  # if True, total quantity of aircraft fuels produced locally will be optimised
     if selfsufficiency:
         aircraft = True
         marine = True
@@ -68,7 +71,7 @@ if __name__ == '__main__':
 
     # Optimization of the system
     obj = 'cost'  # cost, env, multi
-    limit_water = None
+    limit_water = None  # constraint to limit total water consumed
 
     solver_options = {'Method': 2, 'DegenMoves': 0, 'BarHomogeneous': 1}
     if obj == 'multi':
