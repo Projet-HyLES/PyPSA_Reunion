@@ -10,24 +10,18 @@ class ElectricalGrid:
     """
     Represents the electrical grid in the network.
     """
-    R = 0.06  # Reactance
-    X = 0.37  # Resistance
+    R = 0.06  # reactance
+    X = 0.37  # resistance
     # Power line conductors capacity and cost (€/km), source : Vers l'autonomie energetique des ZNI - ADEME
-    COST_COND = 212  # TODO 'a' de la linéarité cout/MVA (à update plus tard)
-    CAP_MAX_1 = 39
-    COST_COND_1 = 4200
-    CAP_MAX_2 = 50
-    COST_COND_2 = 7400
-    CAP_MAX_3 = 67
-    COST_COND_3 = 10400
+    COST_COND = 212
     CAP_MAX_4 = 88
     COST_COND_4 = 14900
     COST_FIX = 25000  # €/km, cost for extending s_nom by 1 MVA (source rapport ADEME)
-    ISLAND_FACTOR = 1.2  # Islanding factor
-    ENV_F = 0.01  # Environmental impact fixed
-    ENV_V = 0.01  # Environmental impact variable
-    WATER_F = 1  # Water factor
-    WATER_V = 1  # Water voltage
+    ISLAND_FACTOR = 1.2  # island factor
+    ENV_F = 0.01  # environmental impact fixed
+    ENV_V = 0.01  # environmental impact variable
+    WATER_F = 1  # water consumption fixed
+    WATER_V = 1  # water consumption variable
 
     def __init__(self, network):
         """
@@ -50,11 +44,11 @@ class ElectricalGrid:
             "Bus",
             "electricity bus " + self.buses_name,
             v_nom=self.buses_vnom,
-            x=self.buses_x, # Longitude
-            y=self.buses_y, # Latitude
+            x=self.buses_x,  # Longitude
+            y=self.buses_y,  # Latitude
         )
 
-    def import_bus_aviation(self):
+    def import_bus_aircraft(self):
         """
         Import a new substation to deal with additional demand for alternative fuels for the aviation sector.
         """
@@ -110,15 +104,17 @@ class ElectricalGrid:
             env_f=self.ENV_F
         )
 
-    def import_lines_aviation(self):
+    def import_lines_aircraft(self):
         """
         Import new lines for the new substation to deal with additional demand for alternative fuels for the aviation sector
         """
         length = functions.calculate_distance([self.network.buses.y['electricity bus Roland Garros airport'], self.network.buses.x['electricity bus Roland Garros airport']],
                                      [self.network.buses.y['electricity bus Ste Marie'], self.network.buses.x['electricity bus Ste Marie']]) / 1000
+        # Adding a line linking to the closest substation (Ste Marie):
         self.importing_line('Aerien', length,
                             ['Roland Garros airport', 'Ste Marie', 'Roland Garros airport', 'Ste Marie'], 44.7,
-                            200, self.COST_COND_4)
+                            200, self.COST_COND_4)  # maximum capacity is set to a high value
+        # Adding lines to the substations connected to the closest substation (Ste Marie)
         for i in self.network.lines.index:
             if 'Ste Marie' in i and 'Roland Garros airport' not in i:
                 self.importing_line('Aerien', self.network.lines.length[i] + length,
@@ -183,8 +179,8 @@ class ExistingStorages:
         """
         Import an existing power storage into the network.
 
-        :param i: The index of the battery.
-        :type i: int
+        :param i: The index of the battery (substation).
+        :type i: str
         """
         self.network.add(
             "StorageUnit",
@@ -208,8 +204,8 @@ class ExistingStorages:
         """
         Import an existing energy storage into the network.
 
-        :param i: The index of the battery.
-        :type i: int
+        :param i: The index of the battery (substation).
+        :type i: str
         """
         self.network.add(
             "Bus",
@@ -258,89 +254,14 @@ class ExistingStorages:
         """
         Calculate the marginal costs of the battery of the production of 1MWh.
 
-        :param i: The index of the battery.
-        :type i: int
+        :param i: The index of the battery (substation).
+        :type i: str
 
         :return: The calculated marginal costs.
         :rtype: float
         """
         return functions.calculate_marginal_costs(
             self.fuelcost[i], self.variableom[i], self.efficiencydispatch[i]
-        )
-
-    def constraints_existing_battery(self, model, horizon):
-        """
-        Add constraints for the existing batteries to the model.
-
-        :param model: The optimization model.
-        :type model: <type of model>
-
-        :param horizon: The horizon for which the model is built.
-        :type horizon: pandas.DatetimeIndex
-        """
-        snap = pd.Series(horizon).to_xarray()
-        snap = snap.rename({"index": "snapshots"})
-
-        for place in self.places:
-            if self.kind[place] == "power":
-                self.add_power_constraints(model, place, snap)
-            elif self.kind[place] == "energy":
-                self.add_energy_constraints(model, place)
-
-    def add_power_constraints(self, model, place, snap):
-        """
-        Add power constraints for an existing power storage to the model.
-
-        :param model: The optimization model.
-        :type model: <type of model>
-
-        :param place: The place where the battery is located.
-        :type place: int
-
-        :param snap: The snapshots.
-        :type snap: pandas.Series
-        """
-        def soc_batterie_1(m, t):
-            """
-            Constraint to bound state of charge of already installed storages (as StorageUnit).
-            :param m: model.
-            :param t: snapshot.
-            :return: The constraint expression.
-            """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] >= self.power[place] * self.eminpu[place]
-
-        def soc_batterie_2(m, t):
-            """
-            Constraint to bound state of charge of already installed storages (as StorageUnit).
-            :param m: model.
-            :param t: snapshot.
-            :return: The constraint expression.
-            """
-            return m.variables["StorageUnit-state_of_charge"][t, "existing battery " + place] <= self.power[place] * self.emaxpu[place]
-
-        model.add_constraints(soc_batterie_1, coords=(snap,), name="soc_batterie_1_" + str(place))
-        model.add_constraints(soc_batterie_2, coords=(snap,), name="soc_batterie_2_" + str(place))
-
-    def add_energy_constraints(self, model, place):
-        """
-        Base constraint for Store component as StorageUnit component.
-
-        :param model: The optimization model.
-        :type model: <type of model>
-
-        :param place: The place where the battery is located.
-        :type place: int
-        """
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["to existing battery link " + place] * self.efficiencystore[place] == 0,
-            name="store_fix_1_" + str(place)
-        )
-
-        model.add_constraints(
-            model.variables["Store-e_nom"]["existing battery " + place] -
-            model.variables["Link-p_nom"]["from existing battery link " + place] * self.efficiencydispatch[place] == 0,
-            name="store_fix_2_" + str(place)
         )
 
 
@@ -360,7 +281,10 @@ class AdditionalStorages:
 
         if self.dataStorage["place"].iloc[0] == "all":
             self.places = pd.Index([s[16:] for s in self.network.buses.index[self.network.buses.index.str.contains("electricity bus")]])
-            postes_removed = ['Takamaka']
+            postes_removed = ['Takamaka']  # Some substations can be removed because of geographical constraints.
+            # For example, the Takamaka station is located in the national park of Reunion island.
+            # No new battery is therefore considered.
+            # More stations can be removed to test the different results obtained :
             # postes_removed.extend(['Dattiers', 'Moufia', 'Digue', 'St Pierre', 'St Paul', 'Langevin', 'Le Bras de la Plaine'])
             self.places = self.places.drop(postes_removed)
         else:
@@ -412,10 +336,10 @@ class AdditionalStorages:
             "Store",
             "additional battery " + self.places,
             bus=additional_battery_bus,
-            e_nom=0, # Nominal power (MW)
+            e_nom=0,  # Nominal power (MW)
             e_nom_extendable=True,
             e_nom_min=0,
-            # e_nom_max=25,
+            # e_nom_max=25,  # A limit of maximal capacity can be tested
             e_cyclic=True,
             standing_loss=self.dataStorage["standing loss"].iloc[0],
             e_min_pu=self.dataStorage["soc min"].iloc[0],
