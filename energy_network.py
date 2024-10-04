@@ -418,21 +418,21 @@ class EnergyNetwork(pypsa.Network):
             coords=(self.get_extendable_i('Store'),))
 
         if aircraft:
-            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_prodsup_bus(self, model, self.horizon)
-            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_cyclic_soc(self, model, self.horizon, 10)
+            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_prodsup_bus(model, self.horizon)
+            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_cyclic_soc(model, self.horizon, 10)
             # model.add_constraints(sum(model.variables["Generator-p"][j, 'generator joker Roland Garros airport']
             #                           for j in list(self.horizon)) -
             #                       8760 * 0.8 * model.variables["Generator-p_nom"]['generator joker Roland Garros airport']
             #                       <= 0, name="charge_joker")
 
         if marine:
-            H2Chain(self.data, pd.Series(['Marquet'])).constraint_prodsup_bus(self, model, self.horizon)
+            H2Chain(self.data, pd.Series(['Marquet'])).constraint_prodsup_bus(model, self.horizon)
 
 
         # Constraints for the definition of the hydrogen chain with hydrogen demand
         if (h2 != "stock") and (h2 != "None"):
-            H2Chain(self.data, self.h2_places).constraint_prodsup_bus(self, model, self.horizon)
-            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)
+            H2Chain(self.data, self.h2_places).constraint_prodsup_bus(model, self.horizon)
+            H2Chain(self.data, self.h2_places).constraint_cyclic_soc(model, self.horizon, 10)
             H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 1, False, False)
 
         # Constraints to link electricity and hydrogen demand for aircraft optimization
