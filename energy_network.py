@@ -1,3 +1,4 @@
+import os
 import time
 import pypsa
 import ast
@@ -122,8 +123,8 @@ class EnergyNetwork(pypsa.Network):
         electrical_grid.import_buses()
         electrical_grid.import_lines()
         if aircraft:
-            electrical_grid.import_bus_aviation()
-            electrical_grid.import_lines_aviation()
+            electrical_grid.import_bus_aircraft()
+            electrical_grid.import_lines_aircraft()
 
         # Import existing storages
         existing_storages = ExistingStorages(self)
@@ -133,6 +134,8 @@ class EnergyNetwork(pypsa.Network):
         self.import_generators(ext)
 
         # Update generator max production values for a year
+        # Maximum production is given for a specific capacity installed (depending on data availability).
+        # The following lines update maximum production according to capacity installed (linear relation).
         if not ext:
             self.update_hydraulic_generator_values()
             for _, row in self.data['generator_data'][['max_capa', 'technology', 'max_year', 'min_year']].dropna().iterrows():
@@ -155,29 +158,32 @@ class EnergyNetwork(pypsa.Network):
 
         # Import electrical demand and additional batteries
         electrical_demand = ElectricalDemand(self)
-        electrical_demand.import_demand()
+        electrical_demand.import_demand(multiyear)
         additional_storages = AdditionalStorages(self)
         additional_storages.import_storages()
 
         if aircraft:
             ratio = None
             if selfsufficiency:
-                ratio = pd.read_excel('/home/afrancoi/Downloads/Ratio aviation.xlsx', header=0)
-                ratio['Month'] = pd.to_datetime(str(self.year) + '-' + ratio['Month'].astype(str), format='%Y-%m')
-                ratio = ratio.set_index('Month')
-                ratio = ratio.reindex(self.horizon, method='ffill')
-            electrical_demand.import_aviation_elec_demand(rt=ratio)
+                if os.path.exists('/home/afrancoi/Downloads/Ratio aviation.xlsx'):
+                    ratio = pd.read_excel('/home/afrancoi/Downloads/Ratio aviation.xlsx', header=0)
+                    ratio['Month'] = pd.to_datetime(str(self.year) + '-' + ratio['Month'].astype(str), format='%Y-%m')
+                    ratio = ratio.set_index('Month')
+                    ratio = ratio.reindex(self.horizon, method='ffill')
+                else:
+                    raise ValueError('ERROR: no ratio for aircraft file found.')
+            electrical_demand.import_aircraft_elec_demand(rt=ratio)
 
             # Aircraft fuels produced with additional power plant :
             self.add("Generator",
-                             "generator joker Roland Garros airport",
-                             bus="electricity bus Roland Garros airport",
-                             carrier="joker",
-                             p_nom_extendable=True,
-                             # p_nom_max=10000,
-                             marginal_cost=1000,
-                             capital_cost=1e10,
-                             )
+                     "generator joker Roland Garros airport",
+                     bus="electricity bus Roland Garros airport",
+                     carrier="joker",
+                     p_nom_extendable=True,
+                     # p_nom_max=10000,
+                     marginal_cost=1000,
+                     capital_cost=1e10,
+                     )
 
             # Aircraft fuels produced with additional power plants at each substation :
             # for i in self.buses.index:
@@ -202,6 +208,8 @@ class EnergyNetwork(pypsa.Network):
 
         # Import hydrogen technologies according to the scenario passed
         postes = self.data["postes"].index
+        # Hydrogen technologies will be installed to every substation by default. Some substations can be removed to
+        # the list, so that no new technology is installed:
         postes_removed = ['Takamaka']
         # postes_removed.extend(['Dattiers', 'Moufia', 'Digue', 'St Pierre', 'St Paul', 'Langevin', 'Le Bras de la Plaine'])
         postes = postes.drop(postes_removed)
@@ -297,7 +305,7 @@ class EnergyNetwork(pypsa.Network):
         self.data['meteo_t'].index = self.horizon
         self.data['wind'].index = self.horizon
 
-        # TODO à enlever ?
+        # Can be used for wind power models
         self.data['meteo_t_corrige'] = self.data['meteo_t'].copy()
         self.data['wind corrige'] = self.data['wind'].copy()
         self.data['rho corrige'] = self.data['wind'].copy()
@@ -370,7 +378,7 @@ class EnergyNetwork(pypsa.Network):
                 total_capa = 0
 
 
-    def optimization(self, solver, solver_options, h2, sec_new, obj, water, ext):
+    def optimization(self, solver, solver_options, h2, sec_new, obj, water, ext, multiyear):
         """
         Function for the creation of the optimisation problem and its solving
         :param solver: str, solver used
@@ -380,13 +388,15 @@ class EnergyNetwork(pypsa.Network):
         :param obj: str, type of the optimisation
         :param water: float, limit for water consumption
         :param ext: bool, switch to allow the capacity of some generators to be extendable
+        :param multiyear: bool,
         :return: costs and environmental impact
         """
         print("INFO: creating '{}' optimisation...".format(obj))
         tic = time.time()
-        model = self.optimize.create_model(transmission_losses=1)  # TODO comparison of results/calculation time for different factors
+        model = self.optimize.create_model(transmission_losses=1)
 
         # Bounds directly on the variables for nominal power
+        # (it can reduce calculation time, but it has not been tested precisely)
         if ext:
             model.variables["Generator-p_nom"].lower = xr.DataArray(
                 self.generators['p_nom_min'][self.get_extendable_i('Generator')].tolist(),
@@ -394,9 +404,9 @@ class EnergyNetwork(pypsa.Network):
             model.variables["Generator-p_nom"].upper = xr.DataArray(
                 self.generators['p_nom_max'][self.get_extendable_i('Generator')].tolist(),
                 coords=(self.get_extendable_i('Generator'),))
-        # model.variables["Line-s_nom"].lower = xr.DataArray(
-        #     self.lines['s_nom_min'][self.get_extendable_i('Line')].tolist(),
-        #     coords=(self.get_extendable_i('Line'),))
+        model.variables["Line-s_nom"].lower = xr.DataArray(
+            self.lines['s_nom_min'][self.get_extendable_i('Line')].tolist(),
+            coords=(self.get_extendable_i('Line'),))
         model.variables["Link-p_nom"].lower = xr.DataArray(
             self.links['p_nom_min'][self.get_extendable_i('Link')].tolist(),
             coords=(self.get_extendable_i('Link'),))
@@ -438,103 +448,99 @@ class EnergyNetwork(pypsa.Network):
         #     model.variables['Generator-p_nom']['Aviation electricity export'] - model.variables['Generator-p_nom'][
         #         'Aviation hydrogen export'] >= 0, name='equality_aviation_2')
 
-        # Constraints for the definition of the existing storages
-        ExistingStorages(self).constraints_existing_battery(self, model, self.horizon)
 
         # Constraints for the definition of the additional storages
         AdditionalStorages(self).constraints_additionnal_battery(self, model)
 
-        # Constraint for limiting total storages
+        # Constraint for limiting total storage capacity installed
         # v_store, c_store = cs.limit_storage(self, model)
         # model.add_constraints(v_store <= 2200 - c_store, name="limit_store")
 
-
         # Constraints for the definition of the disponibility and annual limit of electricity generation technologies
-        hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
-        hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})
-        BaseProduction(self.data["generator_data"], "Hydraulique").constraint_disp(self, model, self.snapshots, hydrau_xa, ext)
-        BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots, hydrau, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], hydrau, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2016], hydrau, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2017], hydrau, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2018], hydrau, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2019], hydrau, ext, spec=None)
 
+        # HYDROELECTRICITY
+        hydrau = self.generators[self.generators.index.str.contains("Hydraulique")].index.to_list()
+        # If disponibility constraint (code not constructed for multiyear):
+        hydrau_xa = pd.Series(hydrau).to_xarray().rename({'index': 'hydrau'})
+        # BaseProduction(self.data["generator_data"], "Hydraulique").constraint_disp(self, model, self.snapshots, hydrau_xa, ext)
+        # If maximum production per year:
+        if multiyear:
+            for i in self.snapshots.year.unique():
+                BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model,
+                                                                                              self.snapshots[self.snapshots.year == i],
+                                                                                              hydrau, ext, spec=None)
+        else:
+            BaseProduction(self.data["generator_data"], "Hydraulique").constraint_min_max(self, model, self.snapshots,
+                                                                                          hydrau, ext, spec=None)
+
+        # BIOENERGY
         bioenergie = self.generators[self.generators.index.str.contains("Bioénergie")].index.to_list()
         bioenergie_xa = pd.Series(bioenergie).to_xarray().rename({'index': 'bioenergie'})
-        BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots, bioenergie_xa, ext)
-        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[self.snapshots.year==2015], bioenergie_xa, ext)
-        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
-        #     self.snapshots.year == 2016], bioenergie_xa, ext)
-        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
-        #     self.snapshots.year == 2017], bioenergie_xa, ext)
-        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
-        #     self.snapshots.year == 2018], bioenergie_xa, ext)
-        # BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots[
-        #     self.snapshots.year == 2019], bioenergie_xa, ext)
+        if multiyear:
+            for i in self.snapshots.year.unique():
+                BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model,
+                                                                                          self.snapshots[self.snapshots.year == i],
+                                                                                          bioenergie_xa, ext)
+        else:
+            BaseProduction(self.data["generator_data"], "Bioénergie").constraint_disp(self, model, self.snapshots,
+                                                                                      bioenergie_xa, ext)
+
 
         bioethanol = self.generators[self.generators.index.str.contains("TAC bioéthanol")].index.to_list()
+        # If disponibility constraint (code not constructed for multiyear):
         bioethanol_xa = pd.Series(bioethanol).to_xarray().rename({'index': 'bioethanol'})
-        BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots, bioethanol_xa, ext)
-        BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots, bioethanol, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], bioethanol, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2016], bioethanol, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2017], bioethanol, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2018], bioethanol, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2019], bioethanol, ext, spec=None)
+        # BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_disp(self, model, self.snapshots, bioethanol_xa, ext)
+        # If maximum production per year:
+        if multiyear:
+            for i in self.snapshots.year.unique():
+                BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model,
+                                                                                                 self.snapshots[self.snapshots.year == i],
+                                                                                                 bioethanol, ext, spec=None)
+        else:
+            BaseProduction(self.data["generator_data"], "TAC bioéthanol").constraint_min_max(self, model, self.snapshots,
+                                                                                     bioethanol, ext, spec=None)
 
+        # BIOMASS
         biomasse = self.generators[self.generators.index.str.contains("Biomasse")].index.to_list()
         bagasse = self.generators[self.generators.index.str.contains("Bagasse")].index.to_list()
         bioimport = self.generators[self.generators.index.str.contains("import")].index.to_list()
-        BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots, bagasse, ext, spec=None)  # min
-        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], bagasse, ext, spec=None)  # min
-        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2016], bagasse, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2017], bagasse, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2018], bagasse, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2019], bagasse, ext, spec=None)
-        # BaseProduction(self.data["generator_data"], "Biomasse import").constraint_min_max(self, model, self.snapshots, bioimport, ext, spec="min")
-        BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots, biomasse + bagasse, ext, spec="max")
-        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], biomasse + bagasse, ext, spec="max")
-        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2016], biomasse + bagasse, ext, spec="max")
-        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2017], biomasse + bagasse, ext, spec="max")
-        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2018], biomasse + bagasse, ext, spec="max")
-        # BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots[
-        #     self.snapshots.year == 2019], biomasse + bagasse, ext, spec="max")
+        if multiyear:
+            for i in self.snapshots.year.unique():
+                BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model,
+                                                                                          self.snapshots[self.snapshots.year == i],
+                                                                                          bagasse, ext, spec=None)
+                BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model,
+                                                                                           self.snapshots[self.snapshots.year == i],
+                                                                                           biomasse + bagasse, ext, spec="max")
+        else:
+            BaseProduction(self.data["generator_data"], "Bagasse").constraint_min_max(self, model, self.snapshots,
+                                                                                      bagasse, ext, spec=None)
+            BaseProduction(self.data["generator_data"], "Biomasse").constraint_min_max(self, model, self.snapshots,
+                                                                                       biomasse + bagasse, ext,
+                                                                                       spec="max")
+            # BaseProduction(self.data["generator_data"], "Biomasse import").constraint_min_max(self, model, self.snapshots, bioimport, ext, spec="min")
+
 
         for i in sec_new:
             data_list = self.generators.index.str.contains(i)
             if data_list.any() and i != "ETM":
                 index_list = self.generators[data_list].index.to_list()
+                # If disponibility constraint (code not constructed for multiyear):
                 index_list_xa = pd.Series(index_list).to_xarray().rename({'index': i})
                 # BaseProduction(self.data["generator_data"], i).constraint_disp(self, model, self.snapshots, index_list_xa, False)
-                BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots, index_list, False, spec=None)
-                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[self.snapshots.year==2015], index_list, False, spec=None)
-                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
-                #     self.snapshots.year == 2016], index_list, False, spec=None)
-                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
-                #     self.snapshots.year == 2017], index_list, False, spec=None)
-                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
-                #     self.snapshots.year == 2018], index_list, False, spec=None)
-                # BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots[
-                #     self.snapshots.year == 2019], index_list, False, spec=None)
+                # If maximum production per year:
+                if multiyear:
+                    for j in self.snapshots.year.unique():
+                        BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model,
+                                                                                          self.snapshots[self.snapshots.year == j],
+                                                                                          index_list, False, spec=None)
+                else:
+                    BaseProduction(self.data["generator_data"], i).constraint_min_max(self, model, self.snapshots,
+                                                                                      index_list, False, spec=None)
 
 
         if ext:
-            # Only one potential for geothermal energy and OTEC: all or nothing (/!\ MILP /!\)
+            # Only one potential for geothermal energy and OTEC: all or nothing (MILP /!\)
             geothermal = self.generators[self.generators.index.str.contains("Geothermie")].index.to_list()
             model.add_variables(name="x_geothermal", binary=True)
             model.add_constraints(model.variables["Generator-p_nom"][geothermal[0]].to_linexpr() -
@@ -552,7 +558,7 @@ class EnergyNetwork(pypsa.Network):
             model.add_constraints(model.variables["Generator-p_nom"][etm[1]].to_linexpr() - model.variables['x_etm1'] * self.generators['p_nom_max'][etm[1]] >= 0, name="p_etm_12")
 
 
-        # Constraints for water consumption # TODO contrainte spatiale ?
+        # Constraint for water consumption
         # v_water, c_water = cs.impact_constraint(self, model, 'water')
         # model.add_constraints(v_water <= water - c_water, name="water_impact")
 
@@ -566,6 +572,8 @@ class EnergyNetwork(pypsa.Network):
         tic = time.time()
 
         if obj == 'multi':
+            if not os.path.exists("/home/afrancoi/PyPSA/Résultats/MOO test/cost min"):
+                raise ValueError('ERROR: no directory ready to store results.')
             cost_list = []
             env_list = []
 
@@ -580,7 +588,7 @@ class EnergyNetwork(pypsa.Network):
             print('Water consumption:', cs.impact_result(self, 'water'))
             print('Total of storages (MWh):', self.stores.groupby(['carrier']).e_nom_opt.sum())
             enr_inter, operation = self.generator_data()
-            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/cost min')  # TODO replicability ATTENTION MOO test doit exister (peut créer 1 dossier mais pas 2)
+            self.export_to_csv_folder('/home/afrancoi/PyPSA/Résultats/MOO test/cost min')
             print('Network successfully exported.')
 
             # Update of objective function to have the environmental optimum
