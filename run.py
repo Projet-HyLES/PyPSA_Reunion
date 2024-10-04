@@ -79,7 +79,9 @@ if __name__ == '__main__':
                                                    h2=h2_scenario, sec_new=sector_new,
                                                    obj=obj, water=limit_water,
                                                    ext=extension_production, multiyear=multiyear,
-                                                   selfsufficiency=selfsufficiency)
+                                                   selfsufficiency=selfsufficiency,
+                                                   aircraft=aircraft, marine=marine,
+                                                   )
         fig = plt.figure()
         plt.scatter(cost_list, env_list)
         plt.title('Pareto front of the simulated system')
@@ -93,7 +95,9 @@ if __name__ == '__main__':
                                                                      h2=h2_scenario, sec_new=sector_new,
                                                                      obj=obj, water=limit_water,
                                                                      ext=extension_production, multiyear=multiyear,
-                                                                     selfsufficiency=selfsufficiency)
+                                                                     selfsufficiency=selfsufficiency,
+                                                                     aircraft=aircraft, marine=marine,
+                                                                     )
 
     # Plot of the results
     print("INFO: plot of the results...")
