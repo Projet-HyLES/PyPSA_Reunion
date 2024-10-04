@@ -78,7 +78,7 @@ if __name__ == '__main__':
         cost_list, env_list = network.optimization(solver="gurobi", solver_options=solver_options,
                                                    h2=h2_scenario, sec_new=sector_new,
                                                    obj=obj, water=limit_water,
-                                                   ext=extension_production)
+                                                   ext=extension_production, multiyear=multiyear)
         fig = plt.figure()
         plt.scatter(cost_list, env_list)
         plt.title('Pareto front of the simulated system')
@@ -91,7 +91,7 @@ if __name__ == '__main__':
         cost_impact, env_impact, water_impact = network.optimization(solver="gurobi", solver_options=solver_options,
                                                                      h2=h2_scenario, sec_new=sector_new,
                                                                      obj=obj, water=limit_water,
-                                                                     ext=extension_production)
+                                                                     ext=extension_production, multiyear=multiyear)
 
     # Plot of the results
     print("INFO: plot of the results...")
