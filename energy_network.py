@@ -378,7 +378,7 @@ class EnergyNetwork(pypsa.Network):
                 total_capa = 0
 
 
-    def optimization(self, solver, solver_options, h2, sec_new, obj, water, ext, multiyear):
+    def optimization(self, solver, solver_options, h2, sec_new, obj, water, ext, multiyear, selfsufficiency, aircraft, marine):
         """
         Function for the creation of the optimisation problem and its solving
         :param solver: str, solver used
@@ -388,7 +388,10 @@ class EnergyNetwork(pypsa.Network):
         :param obj: str, type of the optimisation
         :param water: float, limit for water consumption
         :param ext: bool, switch to allow the capacity of some generators to be extendable
-        :param multiyear: bool,
+        :param multiyear: bool, switch to run multiple years
+        :param selfsufficiency: bool, switch to optimize aircraft fuels
+        :param aircraft: bool, switch to consider alternative fuels for the aviation sector
+        :param marine: bool, switch to consider alternative fuels for the maritime sector
         :return: costs and environmental impact
         """
         print("INFO: creating '{}' optimisation...".format(obj))
@@ -414,13 +417,16 @@ class EnergyNetwork(pypsa.Network):
             self.stores['e_nom_min'][self.get_extendable_i('Store')].tolist(),
             coords=(self.get_extendable_i('Store'),))
 
+        if aircraft:
+            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_prodsup_bus(self, model, self.horizon)
+            H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_cyclic_soc(self, model, self.horizon, 10)
+            # model.add_constraints(sum(model.variables["Generator-p"][j, 'generator joker Roland Garros airport']
+            #                           for j in list(self.horizon)) -
+            #                       8760 * 0.8 * model.variables["Generator-p_nom"]['generator joker Roland Garros airport']
+            #                       <= 0, name="charge_joker")
 
-        # H2Chain(self.data, pd.Series(['Marquet'])).constraint_prodsup_bus(self, model, self.horizon)
-        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_prodsup_bus(self, model, self.horizon)
-        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_cyclic_soc(self, model, self.horizon, 10)
-        # H2Chain(self.data, pd.Series(['Roland Garros airport'])).constraint_minimal_soc(self, model, self.horizon, 1, True, True)
-        # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodsup_bus(self, model, self.horizon)
-        # model.add_constraints(sum(model.variables["Generator-p"][j, 'generator joker Roland Garros airport'] for j in list(self.horizon)) - 8760 * 0.8 * model.variables["Generator-p_nom"]['generator joker Roland Garros airport'] <= 0, name="charge_joker")
+        if marine:
+            H2Chain(self.data, pd.Series(['Marquet'])).constraint_prodsup_bus(self, model, self.horizon)
 
 
         # Constraints for the definition of the hydrogen chain with hydrogen demand
@@ -429,24 +435,14 @@ class EnergyNetwork(pypsa.Network):
             H2Chain(self.data, self.h2_places).constraint_cyclic_soc(self, model, self.horizon, 10)
             H2Chain(self.data, self.h2_places).constraint_minimal_soc(self, model, self.horizon, 1, False, False)
 
-        # if h2 == "stock":
-        #     postes = self.data["postes"].index
-        #     postes = postes.drop('Takamaka')  # contrainte parc national
-            # postes = postes.drop('Dattiers')
-            # postes = postes.drop('Moufia')
-            # postes = postes.drop('Digue')
-            # postes = postes.drop('St Pierre')
-            # postes = postes.drop('St Paul')
-            # postes = postes.drop('Langevin')
-            # postes = postes.drop('Le Bras de la Plaine')
-            # H2Chain(self.data, pd.Series(postes.to_list())).constraint_prodsup_bus(self, model, self.horizon)
-            # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodlong_bis(self, model, self.horizon)
-            # H2Chain(self.data, pd.Series(self.data['postes'].index.tolist())).constraint_prodsup_bus(self, model, self.horizon)
-
-        # model.add_constraints(model.variables['Generator-p_nom']['Aviation electricity export'] - model.variables['Generator-p_nom']['Aviation hydrogen export'] <= 0, name='equality_aviation_1')
-        # model.add_constraints(
-        #     model.variables['Generator-p_nom']['Aviation electricity export'] - model.variables['Generator-p_nom'][
-        #         'Aviation hydrogen export'] >= 0, name='equality_aviation_2')
+        # Constraints to link electricity and hydrogen demand for aircraft optimization
+        if selfsufficiency:
+            model.add_constraints(
+                model.variables['Generator-p_nom']['Aviation electricity export'] -
+                model.variables['Generator-p_nom']['Aviation hydrogen export'] <= 0, name='equality_aviation_1')
+            model.add_constraints(
+                model.variables['Generator-p_nom']['Aviation electricity export'] -
+                model.variables['Generator-p_nom']['Aviation hydrogen export'] >= 0, name='equality_aviation_2')
 
 
         # Constraints for the definition of the additional storages
@@ -868,25 +864,6 @@ class EnergyNetwork(pypsa.Network):
 
         self.stores_t.e[h2stor_index].plot(title="Energy stored in hydrogen storages over the year")
         if bus:
-            # # Plot d'une figure qui montre le fonctionnement sur une station (ici Le Gol)
-            # df = pd.concat([self.loads_t['p_set']['Le Gol hydrogen buses load'], -self.links_t['p1']['electrolyser Le Gol'], -self.links_t['p1']['compressor Le Gol'], self.stores_t['p']['hydrogen storage hp Le Gol']], axis=1)
-            # df = df * 1000 / 33.33
-            # df = df.rename(columns={"Le Gol hydrogen buses load": "Demande en hydrogène",
-            #                         "electrolyser Le Gol": "Quantité en sortie d'électrolyseur",
-            #                         "compressor Le Gol": "Quantité en sortie de compresseur",
-            #                         "hydrogen storage hp Le Gol": "Quantité entrante/sortante du stockage"})
-            # ax = df[72:72 + 24 * 3].plot()
-            # plt.grid()
-            # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5),
-            #           fancybox=True, ncol=1, frameon=False, fontsize=17)
-            # ax.set_xlabel(" ", fontsize=17)
-            # ax.tick_params(axis='both', which='both', labelsize=14)
-            # ax.set_ylabel("Quantité d'hydrogène (kgH2)", fontsize=17)
-            # plt.tight_layout()
-            # plt.savefig("hydrogen.png", bbox_inches="tight", dpi=300)
-
-            # network.loads_t.p_set['Marquet hydrogen buses load'].sum() + network.loads_t.p_set['Le Gol hydrogen buses load'].sum() + network.loads_t.p_set['Bois Rouge hydrogen buses load'].sum()
-
             return ely_index, h2stor_index
         else:
             fc = self.links.loc[self.links[self.links.index.str.contains("fuel cell")].index]
