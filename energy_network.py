@@ -131,7 +131,7 @@ class EnergyNetwork(pypsa.Network):
         existing_storages.import_storages()
 
         # Import generators
-        self.import_generators(ext)
+        self.import_generators(ext, multiyear)
 
         # Update generator max production values for a year
         # Maximum production is given for a specific capacity installed (depending on data availability).
@@ -292,7 +292,7 @@ class EnergyNetwork(pypsa.Network):
             self.data['meteo_t'] = pd.read_csv(f"{self.data_dir}/BRIO/T_{str(self.year)[-2:]}_{self.climate_scenario}.csv",
                                                sep=',', encoding='latin-1', index_col=0)
 
-            self.data['wind'] = pd.read_csv(f"{self.data_dir}/vent_construit_AROME.csv",
+            self.data['wind'] = pd.read_csv(f"{self.data_dir}/wind_data.csv",
                                             encoding='latin-1', index_col=0)
             self.data['wind'].sort_index(inplace=True)
 
@@ -340,7 +340,7 @@ class EnergyNetwork(pypsa.Network):
         self.madd("Carrier", self.data["carrier"]["name"].tolist(), color=self.data["carrier"]["color"].tolist())
 
 
-    def import_generators(self, ext):
+    def import_generators(self, ext, multiyear):
         """
         Function to import the generators of the energy system
         :param ext: bool, switch to allow the capacity of some generators to be extendable
@@ -365,13 +365,13 @@ class EnergyNetwork(pypsa.Network):
                     PV(self.data["generator_data"]).import_pv(self, round(total_capa, 2) / 1000, self.data["meteo_t"][ps], self.data["meteo_r"][ps], ps, ext)
 
                 elif fil == "Eolien":
-                    Wind(self.data["generator_data"], "onshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext)
+                    Wind(self, self.data["generator_data"], "onshore").import_wind(self, total_capa/1000, self.data["wind"][ps], self.data["meteo_t"][ps], ps, ext, False)
 
                 elif fil == "Eolien offshore":
-                    Wind(self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"]["Offshore"], self.data["meteo_t"][ps], ps, ext)
+                    Wind(self, self.data["generator_data"], "offshore").import_wind(self, total_capa/1000, self.data["wind"]["Offshore"], self.data["meteo_t"][ps], ps, ext, False)
 
                 elif fil == "ETM":
-                    ETM(self.data["generator_data"]).import_etm(self, total_capa/1000, ps)
+                    ETM(self.data["generator_data"]).import_etm(self, total_capa/1000, ps, multiyear)
 
                 else:
                     BaseProduction(self.data["generator_data"], fil).import_base(self, round(total_capa, 2) / 1000, ps, ext)

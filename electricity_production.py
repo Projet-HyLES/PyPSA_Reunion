@@ -130,12 +130,12 @@ class ETM:
 
 
 class Wind:
-    def __init__(self, data, type):
+    def __init__(self, network, data, type):
         self.rho = 1.225  # Air density (kg/m3)
         self.type = type
 
         if self.type == "onshore":  # onshore
-            vestas_on = pd.read_csv('/home/agnes/PyPSA/Codes/HyLES/Data/Vestas_1.csv', sep=';')
+            vestas_on = pd.read_csv(f'{network.data_dir}/Vestas_1.csv', sep=';')
             turbine = {'nominal_power': 2e6,  # in W
                        'hub_height': 80,  # in m
                        'rotor_diameter': 110,
@@ -153,7 +153,7 @@ class Wind:
             self.roughness = 0.25
             self.filiere = "Eolien"
         elif self.type == "offshore":
-            vestas_off = pd.read_csv('/home/agnes/PyPSA/Codes/HyLES/Data/Vestas_2.csv', sep=';')
+            vestas_off = pd.read_csv(f'{network.data_dir}/Vestas_2.csv', sep=';')
             turbine = {'nominal_power': 9.5e6,  # in W
                        'hub_height': 140,  # in m
                        'rotor_diameter': 164,
