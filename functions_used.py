@@ -57,7 +57,7 @@ def import_from_excel_folder(path, year):
     scena_prod = str(
         components['network'][components['network'].index == 'production scenario'].dropna(axis=1).values[0][0])
 
-    prod = pd.read_csv(path+"/registre-des-installations-de-production-et-de-stockage-" + str(year) + "-" + str(scena_prod) + ".csv", sep=';', encoding='latin-1')
+    prod = pd.read_csv(path+"/power_facilities-" + str(year) + "-" + str(scena_prod) + ".csv", sep=';', encoding='latin-1')
     if not {"Poste source", "Filière", "Puissance installée (kW)"}.issubset(prod.columns.values.tolist()):
         raise ValueError('ERROR: generator file not formatted.')
     components["generator"] = prod
