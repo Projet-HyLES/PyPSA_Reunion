@@ -281,7 +281,7 @@ class EnergyNetwork(pypsa.Network):
             self.data['wind'] = self.data['wind'][(self.data['wind'].index.month != 2) | (self.data['wind'].index.day != 29)]
 
             self.data['rain'] = pd.read_csv(
-                f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
+                f"{self.data_dir}/Weather/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
             )
 
 
@@ -289,7 +289,7 @@ class EnergyNetwork(pypsa.Network):
             self.data['meteo_r'] = pd.read_csv(f"{self.data_dir}/rayonnement_tmy_{str(self.year)}.csv",
                                                sep=',', encoding='latin-1', index_col=0)
 
-            self.data['meteo_t'] = pd.read_csv(f"{self.data_dir}/BRIO/T_{str(self.year)[-2:]}_{self.climate_scenario}.csv",
+            self.data['meteo_t'] = pd.read_csv(f"{self.data_dir}/Weather/T_{str(self.year)[-2:]}_{self.climate_scenario}.csv",
                                                sep=',', encoding='latin-1', index_col=0)
 
             self.data['wind'] = pd.read_csv(f"{self.data_dir}/wind_data.csv",
@@ -297,7 +297,7 @@ class EnergyNetwork(pypsa.Network):
             self.data['wind'].sort_index(inplace=True)
 
             self.data['rain'] = pd.read_csv(
-                f"{self.data_dir}/BRIO/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
+                f"{self.data_dir}/Weather/Precipitations/Prec_scena{self.climate_scenario}_moy{str(self.year)[-2:]}.csv"
             )
 
 
