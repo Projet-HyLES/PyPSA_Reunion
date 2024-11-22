@@ -1,112 +1,97 @@
 import os
 import pandas as pd
-import numpy as np
-import functions_used as functions
 
-# Definition of the electrical demand : base, VE, buses
+# Definition of the electrical demand : base, electric vehicles, buses
 
 class ElectricalDemand:
     def __init__(self, network):
-
         self.network = network
-
+        self.nb_year = len(self.network.snapshots.year.unique().values)
         self.horizon = network.horizon
         self.days = network.snapshots.normalize().unique()
         self.data_dir = network.data_dir
-        self.ps_transfo = self.network.data["postes"].loc[self.network.data["postes"]["Transfo"] == "y"].index  # Source substations with transformers
-
+        self.ps_transfo = self.network.data["postes"].loc[self.network.data["postes"]["Transfo"] == "y"].index  # Substations with a transformer
         self.veh_scenario = self.network.vehicles_scenario
         self.bus_scenario = self.network.buses_scenario
 
-    def import_demand(self):
+    def import_demand(self, multiyear):
         self.network.data["load"] = pd.DataFrame(0, index=self.horizon, columns=self.ps_transfo)
         self.network.data["load_buses"] = self.network.data["load_buses"].set_index("Réseau")
-        year = self.network.snapshots.year.unique().values[0]
-        VE = self.import_VE_demand()
-        BUS = self.import_bus_demand()
+        year = self.network.year
+        elec_veh = self.import_elec_veh_demand(multiyear)
+        buses = self.import_bus_demand(multiyear)
+
+        conso = pd.read_csv(self.data_dir+"/Consumption "+str(self.network.cons)+"/" + str(year) + "_" + str(self.network.climate_scenario)+".csv",
+                            sep=',', encoding='latin-1', index_col=0).squeeze('columns')
+        if multiyear:
+            conso = pd.concat([conso] * self.nb_year, ignore_index=True)  # No consumption data for several year
+        conso.index = self.horizon
 
         for i in self.ps_transfo:
-            conso = pd.read_csv(self.network.data_dir+"/Consumption "+str(self.network.cons)+"/" + str(year) + "_" + str(self.network.climate_scenario)+".csv", sep=',', encoding='latin-1',
-                                index_col=0).squeeze('columns')
-            conso.index = self.horizon
-
-        for i in self.ps_transfo:
-            self.network.data["load"][i] = conso[i] + VE[i]
+            self.network.data["load"][i] = conso[i] + elec_veh[i]
 
             if i in self.network.data["load_buses"][self.network.scenario].values:
-                self.network.data["load"][i] += BUS[self.network.data["load_buses"][self.network.data["load_buses"][
-                                                              self.network.scenario] == i].index.values + " " + self.bus_scenario[0]].squeeze() / 1000
+                self.network.data["load"][i] += buses[self.network.data["load_buses"][self.network.data["load_buses"][
+                                                             self.network.scenario] == i].index.values + " " + self.bus_scenario[0]].squeeze() / 1000
 
             self.network.add("Load",  # PyPSA component
-                        i + " load",  # Name of the element
-                        bus="electricity bus " + i,  # Bus to which the demand is attached
-                        p_set=self.network.data["load"][i],  # Active power consumption
-                        )
+                             i + " load",  # Name of the element
+                             bus="electricity bus " + i,  # Bus to which the demand is attached
+                             p_set=self.network.data["load"][i],  # Active power consumption
+                             )
 
-    def import_VE_demand(self):
+    def import_elec_veh_demand(self, multiyear):
         if os.path.exists(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv"):
             df = pd.read_csv(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable-results-" + str(self.veh_scenario[1]) + ".csv", sep=',', encoding='latin-1', index_col=0)
+            if multiyear:
+                df = pd.concat([df] * self.nb_year, ignore_index=True)  # No consumption data for several year
             df.index = self.horizon
             return df
         else:
-            # Code qui reconstruit la demande, pas forcément nécessaire de le garder
-            data = pd.ExcelFile(self.data_dir + "/VE/VE-" + str(self.veh_scenario[0]) + "pilotable.xlsx")
-            data_parse = {
-                "load": data.parse("Load curve"),
-                "ratio": data.parse("Demographic distribution"),
-                "PS": data.parse("Stations")
-            }
-            data_parse["load"].set_index('Hour', inplace=True)
-            data_parse["ratio"].set_index('Town', inplace=True)
-            data_parse["PS"].set_index('Town', inplace=True)
+            raise ValueError('ERROR: no electric vehicles file found.')
 
-            ps = pd.read_csv(self.data_dir + "/postes-sources.csv", sep=';', encoding='latin-1')
-
-            data_parse["load_communes"] = pd.DataFrame(0, index=data_parse["load"].index, columns=data_parse["ratio"].index)
-            # Répartition de la courbe de charge journalière par commune
-            for i in data_parse["ratio"].index:
-                data_parse["load_communes"][i] = data_parse["load"]["MW (316 GWh)"] * \
-                                             data_parse["ratio"]["Demographic distribution"].loc[
-                                                 data_parse["ratio"].index == i].values
-
-            data_parse["results"] = pd.DataFrame(0, index=self.horizon, columns=ps["Nom du poste source"])
-            for i in data_parse["load_communes"].columns:
-                alpha = data_parse["PS"].loc[data_parse["PS"].index == i]
-
-                if alpha["S2"].isna().values:
-                    to_add = data_parse["load_communes"][i]
-                    empty = np.zeros((365, 24))
-                    for h in range(empty.shape[1]):
-                        empty[:, h] = to_add.iloc[h]
-
-                    empty = empty.reshape((-1, 1))
-                    data_parse["results"][alpha["S1"]] += empty
-
-                elif alpha["S3"].isna().values:
-                    to_add = data_parse["load_communes"][i] / 2
-                    empty = np.zeros((365, 24))
-                    for h in range(empty.shape[1]):
-                        empty[:, h] = to_add.iloc[h]
-
-                    empty = empty.reshape((-1, 1))
-                    data_parse["results"][alpha["S1"]] += empty
-                    data_parse["results"][alpha["S2"]] += empty
-
-                else:
-                    to_add = data_parse["load_communes"][i] / 3
-                    empty = np.zeros((365, 24))
-                    for h in range(empty.shape[1]):
-                        empty[:, h] = to_add.iloc[h]
-
-                    empty = empty.reshape((-1, 1))
-                    data_parse["results"][alpha["S1"]] += empty
-                    data_parse["results"][alpha["S2"]] += empty
-                    data_parse["results"][alpha["S3"]] += empty
-
-            return data_parse["results"]
-
-    def import_bus_demand(self):
+    def import_bus_demand(self, multiyear):
         if os.path.exists(self.data_dir+"/conso_bus_urbains.csv"):
             df = pd.read_csv(self.data_dir+"/conso_bus_urbains.csv", sep=',', encoding='latin-1', index_col=0)
+            if multiyear:
+                df = pd.concat([df] * self.nb_year, ignore_index=True)  # No consumption data for several year
             df.index = self.horizon
             return df
+        else:
+            raise ValueError('ERROR: no electric buses file found.')
+
+    def import_aircraft_elec_demand(self, rt):
+        if rt is None:  # no optimization of aircraft fuels produced locally
+            if os.path.exists(self.data_dir + "/demand_aviation_elec.csv"):
+                conso = pd.read_csv(self.data_dir + "/demand_aviation_elec.csv", sep=',', encoding='latin-1', index_col=0).squeeze('columns')
+                conso.index = self.horizon
+                self.network.add("Load",  # PyPSA component
+                                 "Aviation electricity load",  # Name of the element
+                                 bus="electricity bus Roland Garros airport",  # Bus to which the demand is attached
+                                 p_set=conso,  # Active power consumption
+                                 )
+            else:
+                raise ValueError('ERROR: no aircraft electricity demand file found.')
+        else:
+            self.network.add("Generator",  # PyPSA component
+                             "Aviation electricity export",  # Name of the element
+                             bus="electricity bus Roland Garros airport",  # Bus to which the demand is attached
+                             carrier='aircraft',
+                             p_nom_extendable=True,
+                             p_min_pu=-rt['Ratio'] * 0.09897,  # Factor determined with the distribution of hydrogen demand
+                             p_max_pu=-rt['Ratio'] * 0.09897,
+                             marginal_cost=1000  # Random marginal cost
+                             )
+
+    def import_maritime_elec_demand(self):
+        if os.path.exists(self.data_dir + "/demand_maritime_elec.csv"):
+            conso = pd.read_csv(self.data_dir + "/demand_maritime_elec.csv", sep=',', encoding='latin-1', index_col=0).squeeze('columns')
+            conso.index = self.horizon
+            self.network.add("Load",  # PyPSA component
+                             "Maritime electricity load",  # Name of the element
+                             bus="electricity bus Marquet",  # Bus to which the demand is attached
+                             p_set=conso*0.75,  # Active power consumption : times 0.75 to consider reduction of
+                             # maritime traffic for Reunion island (25% of maritime traffic is currently for fossil fuels)
+                             )
+        else:
+            raise ValueError('ERROR: no maritimz electricity demand file found.')
