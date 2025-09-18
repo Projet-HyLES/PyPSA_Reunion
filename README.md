@@ -60,6 +60,8 @@ The following data files are used in the code :
 - *20X0_Y.csv*: time series of base electricity consumption at the substation, according to electricity consumption scenario. X stands for the year simulated, Y for the climate scenario simulated.
 - *Vestas_X.csv* : capacity factor of Vestas wind turbines. 1 is for onshore wind, 2 is for offshore wind.
 
+These complementary data are required to run pypsa-reunion and should be downloaded : https://zenodo.org/records/17149940?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6IjY3YWI1OGZjLTEwMTUtNDgwMS05ZTlkLTY0MzQzMTUyZTIzOSIsImRhdGEiOnt9LCJyYW5kb20iOiIzODJlNDRlNmVjZGNkZjJkYTMxODViYjljYTE1MDNmZCJ9.ZC8xpnOw8MvV7nuCof1MQB3gCptgYxLpAcuCNTzzGjY6dK03IGRIZbij5dLs8yAwogSpzhLdMcMyy_SFvO-BZw
+
 # Remarks
 Climate data are not all available on the repository. Indeed, a lot of the data used come from the BRIO¹ project (*Building Resilience in the Indian Ocean*). If you need more data, feel free to contact A. François: *agnes.francois@yahoo.fr*.
 
