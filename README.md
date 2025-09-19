@@ -1,3 +1,8 @@
+The code in this repository enables running simulations of La Réunion's high voltage grid based on scenarios for 2030 and 2050, with a focus on exploring the potential roles of hydrogen.
+It was created as part of the HyLES project ANR-20-CE05-0035 funded by the French research agency (ANR). More information on the project: https://projects.femto-st.fr/hyles/.
+This work is the result of a collaboration between ENERGY-lab at Université de La Réunion and FEMTO-ST at Université Marie et Louis Pasteur. 
+The main author of this work is Dr. Agnès François. More details in her Ph.D. thesis: https://theses.fr/2024UBFCA011.
+
 # Requirements 
 - PyPSA (`conda install -c conda-forge pypsa`)
 - cartopy (`conda install conda-forge::cartopy`)
